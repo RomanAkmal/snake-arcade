@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Snake Arcade — by Roman Akmal</title>
+  <meta name="description" content="A polished browser snake game built with vanilla JS. By Roman Akmal.">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <main class="app">
+    <header class="hud">
+      <div class="hud-item">
+        <span class="hud-label">Score</span>
+        <span class="hud-value" id="score">0</span>
+      </div>
+      <div class="hud-combo" id="combo" hidden>×<span id="combo-value">1</span></div>
+      <div class="hud-item hud-right">
+        <span class="hud-label">Best</span>
+        <span class="hud-value" id="best">0</span>
+      </div>
+      <button class="pause-btn" id="pause-btn" aria-label="Pause" hidden>❚❚</button>
+    </header>
+
+    <div class="stage" id="stage">
+      <canvas id="game-canvas"></canvas>
+      <div class="overlay" id="overlay" hidden></div>
+    </div>
+
+    <footer class="footer">
+      <span>snake-arcade · Roman Akmal</span>
+    </footer>
+  </main>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
