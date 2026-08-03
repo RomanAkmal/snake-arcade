@@ -1,7 +1,7 @@
-// game.js — pure game logic for Classic mode.
-// No DOM, no canvas, no audio: this module only knows about the grid,
-// the snake, food, scoring and time. Everything else reacts to the
-// events it returns from advance().
+// game.js — pure game logic. No DOM, no canvas, no audio: this module
+// only knows about the grid, the snake, food, scoring and time.
+// Everything else reacts to the events it returns from advance().
+// Also home to the little autopilot that drives the menu's idle snake.
 
 export const GRID = 21; // 21×21 cells — odd so the snake starts dead-centre
 
@@ -13,9 +13,25 @@ const COMBO_WINDOW_MS = 3000; // eat again within this window to raise the combo
 const COMBO_MAX = 5;
 const POINTS_PER_FOOD = 10;
 
+const DIRS = [
+  { x: 1, y: 0 },
+  { x: -1, y: 0 },
+  { x: 0, y: 1 },
+  { x: 0, y: -1 },
+];
+
 export class Game {
-  constructor(mode = 'classic') {
+  // Options beyond Classic (all default to Classic behaviour):
+  //   wrap      — walls teleport to the far side instead of killing
+  //               (Rush mode, and the menu AI's escape hatch)
+  //   maxLength — snake stops growing past this length (menu AI stays
+  //               short so it can't box itself in); 0 = grow forever
+  //   speedRamp — whether eating speeds the game up
+  constructor(mode = 'classic', { wrap = false, maxLength = 0, speedRamp = true } = {}) {
     this.mode = mode;
+    this.wrap = wrap;
+    this.maxLength = maxLength;
+    this.speedRamp = speedRamp;
     this.reset();
   }
 
@@ -83,12 +99,13 @@ export class Game {
     this.prevSnake = this.snake.map((s) => ({ ...s }));
 
     const head = this.snake[0];
-    const nx = head.x + this.dir.x;
-    const ny = head.y + this.dir.y;
+    let nx = head.x + this.dir.x;
+    let ny = head.y + this.dir.y;
 
-    // Classic mode: walls kill
     if (nx < 0 || ny < 0 || nx >= GRID || ny >= GRID) {
-      return this.die(events, 'wall');
+      if (!this.wrap) return this.die(events, 'wall'); // Classic: walls kill
+      nx = (nx + GRID) % GRID; // wrap modes: teleport to the far side
+      ny = (ny + GRID) % GRID;
     }
 
     const ate = this.food && nx === this.food.x && ny === this.food.y;
@@ -110,7 +127,12 @@ export class Game {
           : 1;
       this.lastEatAt = this.clock;
       this.score += POINTS_PER_FOOD * this.combo;
-      this.stepMs = Math.max(STEP_MIN_MS, this.stepMs - STEP_RAMP_MS);
+      if (this.speedRamp) {
+        this.stepMs = Math.max(STEP_MIN_MS, this.stepMs - STEP_RAMP_MS);
+      }
+      if (this.maxLength && this.snake.length > this.maxLength) {
+        this.snake.pop(); // capped: ate but doesn't grow
+      }
       events.push({
         type: 'eat',
         x: nx,
@@ -142,4 +164,54 @@ export class Game {
       ? free[Math.floor(Math.random() * free.length)]
       : null; // board full — you win snake, basically
   }
+}
+
+// ---------- menu autopilot ----------
+// Greedy steering for the idle snake behind the menu. Not meant to be
+// clever — just lively: head toward the food, never step on yourself,
+// stay inside the walls unless boxed in. Its Game runs with wrap
+// enabled, so the "trapped" escape hatch is simply walking off-board
+// and teleporting to the far side.
+
+export function chooseAiDirection(game) {
+  const head = game.snake[0];
+  const { food } = game;
+  let best = game.dir; // fallback: keep going (only if every move is fatal)
+  let bestCost = Infinity;
+
+  for (const d of DIRS) {
+    if (d.x === -game.dir.x && d.y === -game.dir.y) continue; // no 180°
+    let nx = head.x + d.x;
+    let ny = head.y + d.y;
+    const wraps = nx < 0 || ny < 0 || nx >= GRID || ny >= GRID;
+    nx = (nx + GRID) % GRID;
+    ny = (ny + GRID) % GRID;
+
+    // never step on the body (tail vacates unless this move eats)
+    const eats = food && nx === food.x && ny === food.y;
+    const body = eats ? game.snake : game.snake.slice(0, -1);
+    if (body.some((s) => s.x === nx && s.y === ny)) continue;
+
+    // Cost: distance to food; walls strongly discouraged (wrapping is
+    // the last resort); dead ends discouraged so it rarely traps itself.
+    let cost = food ? Math.abs(nx - food.x) + Math.abs(ny - food.y) : 0;
+    if (wraps) cost += 1000;
+    if (freeNeighbours(nx, ny, body) === 0) cost += 500;
+
+    if (cost < bestCost) {
+      bestCost = cost;
+      best = d;
+    }
+  }
+  return best;
+}
+
+function freeNeighbours(x, y, body) {
+  let free = 0;
+  for (const d of DIRS) {
+    const nx = (x + d.x + GRID) % GRID;
+    const ny = (y + d.y + GRID) % GRID;
+    if (!body.some((s) => s.x === nx && s.y === ny)) free++;
+  }
+  return free;
 }

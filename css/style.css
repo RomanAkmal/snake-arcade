@@ -30,7 +30,9 @@ body {
 }
 
 .app {
-  width: min(92vw, 440px);
+  /* fill the screen: capped by height so HUD + board + footer always
+     fit, and by 840px so cells don't get comically large on a 27" */
+  width: min(94vw, 76vh, 840px);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -62,7 +64,7 @@ body {
 }
 
 .hud-value {
-  font-size: 22px;
+  font-size: clamp(22px, 3vh, 30px);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -185,6 +187,414 @@ body {
 .btn:hover { transform: scale(1.05); }
 .btn:active { transform: scale(0.97); }
 
+.btn--ghost {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--muted) 45%, transparent);
+}
+
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+/* ---------- fullscreen fx layer ---------- */
+
+/* Intro cinematics and confetti bursts. Above everything visual
+   (including Zig, so confetti falls over him) but never interactive. */
+#fx-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 60;
+}
+
+/* ---------- start gate ---------- */
+
+/* Shown before anything else: the first key/tap here is the user
+   gesture that unlocks audio, so the intro that follows is fully
+   scored instead of silent (and that gesture no longer skips it). */
+.overlay--gate {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  border-radius: 0;
+  background: var(--bg);
+  display: grid;
+  place-items: center;
+}
+
+.gate-hint {
+  margin: 0;
+  color: var(--muted);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 14px;
+  letter-spacing: 0.16em;
+  animation: gate-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes gate-pulse {
+  50% { opacity: 0.35; }
+}
+
+/* ---------- intro ---------- */
+
+/* The logo is drawn fullscreen on #fx-canvas; this overlay only
+   carries the loading bar, rotating message and skip hint — promoted
+   to fullscreen and above the fx layer. */
+.overlay--intro {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  border-radius: 0;
+  background: transparent;
+  backdrop-filter: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 26vh;
+}
+
+.intro-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* our display:flex would override the hidden attribute's display:none */
+.intro-loading[hidden] { display: none; }
+
+.loading-track {
+  width: 180px;
+  max-width: 60%;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 25%, transparent);
+  overflow: hidden;
+}
+
+.loading-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  border-radius: inherit;
+  box-shadow: 0 0 10px var(--accent);
+  transition: width 0.15s linear;
+}
+
+.loading-msg {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+.skip-hint {
+  position: absolute;
+  bottom: 10px;
+  right: 14px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+}
+
+/* ---------- menu ---------- */
+
+/* Lighter veil than the other overlays so the idle AI snake shows
+   through; the renderer dims the board as well for readability. */
+.overlay--menu {
+  background: color-mix(in srgb, var(--bg) 30%, transparent);
+  backdrop-filter: none;
+  animation: overlay-in 0.3s ease-out;
+}
+
+@keyframes overlay-in {
+  from { opacity: 0; }
+}
+
+.title--small { font-size: clamp(22px, 6vw, 30px); }
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 200px;
+}
+
+.menu-item {
+  position: relative;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: clamp(17px, 2.4vh, 22px);
+  letter-spacing: 0.06em;
+  padding: 10px 26px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.menu-item.selected {
+  color: var(--accent);
+  text-shadow: 0 0 14px var(--accent);
+}
+
+.menu-item.selected::before {
+  content: '▸';
+  position: absolute;
+  left: 8px;
+}
+
+/* ---------- about panel ---------- */
+
+.about p {
+  margin: 0;
+  max-width: 34ch;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.about-link { color: var(--accent); }
+
+/* ---------- Zig the mascot ---------- */
+
+:root { --zig-size: clamp(240px, 52vh, 560px); }
+
+#zig-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none; /* only the bubble is interactive */
+}
+
+#zig-wrap {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: var(--zig-size);
+  height: var(--zig-size);
+  /* Zig is pokeable — clicking him makes him react */
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+#zig-wrap svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* entrances */
+.zig-slide { animation: zig-slide 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.zig-pop   { animation: zig-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.zig-bounce { animation: zig-bounce 0.6s ease; }
+
+@keyframes zig-slide {
+  from { transform: translateX(-110%); }
+}
+@keyframes zig-pop {
+  from { transform: translateY(25%) scale(0.55); opacity: 0; }
+}
+@keyframes zig-bounce {
+  0%   { transform: translateY(0); }
+  30%  { transform: translateY(-9%); }
+  55%  { transform: translateY(0); }
+  75%  { transform: translateY(-4%); }
+  100% { transform: translateY(0); }
+}
+
+/* idle: sway the whole snake from the base of his neck */
+svg.zig-idle {
+  transform-origin: 15% 90%;
+  animation: zig-bob 2.6s ease-in-out infinite;
+}
+@keyframes zig-bob {
+  50% { transform: translateY(-4.5%) rotate(-1.4deg); }
+}
+
+/* idle: the head nods and tilts independently of the neck (the SVG's
+   head elements are wrapped in #zig-head at load time) */
+svg.zig-idle #zig-head {
+  transform-box: fill-box;
+  transform-origin: 30% 85%;
+  animation: zig-nod 4.6s ease-in-out infinite;
+}
+@keyframes zig-nod {
+  0%, 100% { transform: rotate(0) translateY(0); }
+  30% { transform: rotate(2.6deg) translateY(4px); }
+  55% { transform: rotate(-2.2deg) translateY(-3px); }
+  75% { transform: rotate(1.2deg) translateY(2px); }
+}
+
+/* idle: eyes wander — pupils and glints drift together, with holds
+   between glances (units are SVG user-space px on a 320 viewBox) */
+svg.zig-idle .zig-pupil { animation: zig-look 7s ease-in-out infinite; }
+@keyframes zig-look {
+  0%, 20% { transform: translate(0, 0); }
+  27%, 42% { transform: translate(7px, 2px); }
+  49%, 60% { transform: translate(-6px, 1px); }
+  67%, 78% { transform: translate(2px, -4px); }
+  85%, 100% { transform: translate(0, 0); }
+}
+/* while blinking, let the lid-squash win over the look animation */
+svg.zig-blinking .zig-pupil { animation: none; }
+
+/* hiss: rear back, puff up, shake it out */
+.zig-hiss { animation: zig-hiss 0.55s ease; }
+@keyframes zig-hiss {
+  0%, 100% { transform: translateX(0) scale(1) rotate(0); }
+  18% { transform: translateX(-4%) scale(1.05, 0.97) rotate(-3.5deg); }
+  40% { transform: translateX(3%) scale(1.07) rotate(2.6deg); }
+  65% { transform: translateX(-2%) scale(1.02) rotate(-1.4deg); }
+}
+
+/* idle: blink — eyelids are faked by squashing the eye circles */
+.zig-eye {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.09s ease;
+}
+svg.zig-blinking .zig-eye { transform: scaleY(0.08); }
+
+/* idle: tongue flick — hidden until the flick animation runs */
+#zig-tongue {
+  transform-box: fill-box;
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+svg.zig-flick #zig-tongue { animation: zig-flick 0.5s ease; }
+@keyframes zig-flick {
+  0%, 100% { transform: scaleX(0); }
+  35%, 70% { transform: scaleX(1); }
+}
+
+/* speech bubble */
+#zig-bubble {
+  position: absolute;
+  left: calc(var(--zig-size) * 0.85);
+  bottom: calc(var(--zig-size) * 0.55);
+  max-width: min(300px, 55vw);
+  background: var(--panel);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 16px;
+  padding: 12px 16px;
+  pointer-events: auto;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.35);
+}
+
+#zig-bubble::after {
+  /* little tail pointing back toward Zig */
+  content: '';
+  position: absolute;
+  left: -6px;
+  bottom: 18px;
+  width: 12px;
+  height: 12px;
+  background: var(--panel);
+  border-left: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  transform: rotate(45deg);
+}
+
+#zig-text {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.45;
+  min-height: 1.45em; /* no jump while the typewriter fills it */
+}
+
+.zig-form {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.zig-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--muted) 45%, transparent);
+  border-radius: 8px;
+  padding: 9px 10px;
+  font-size: 15px;
+  font-family: inherit;
+}
+.zig-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.zig-go { padding: 9px 16px; font-size: 14px; }
+
+.zig-skip {
+  background: none;
+  border: none;
+  margin-top: 8px;
+  padding: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* mobile: smaller Zig, bubble above him instead of beside */
+@media (max-width: 520px) {
+  :root { --zig-size: clamp(160px, 34vh, 280px); }
+  #zig-bubble {
+    left: 12px;
+    right: 12px;
+    max-width: none;
+    bottom: calc(var(--zig-size) * 0.92 + 12px);
+  }
+  #zig-bubble::after {
+    left: calc(var(--zig-size) * 0.45);
+    bottom: -6px;
+    border: none;
+    border-right: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zig-slide, .zig-pop, .zig-bounce, .zig-hiss { animation: none; }
+  svg.zig-idle,
+  svg.zig-idle #zig-head,
+  svg.zig-idle .zig-pupil { animation: none; }
+  svg.zig-flick #zig-tongue { animation: none; }
+}
+
+/* ---------- toast ---------- */
+
+.toast {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--panel);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--text);
+  font-size: 13px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: toast-in 0.2s ease-out;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px);
+  }
+}
+
 /* ---------- Footer ---------- */
 
 .footer {
@@ -198,4 +608,8 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .hud-combo { animation: none; }
   .btn { transition: none; }
+  .toast { animation: none; }
+  .overlay--menu { animation: none; }
+  .loading-fill { transition: none; }
+  .gate-hint { animation: none; }
 }

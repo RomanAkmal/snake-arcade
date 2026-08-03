@@ -28,3 +28,14 @@ export function getBestScore(mode) {
 export function setBestScore(mode, score) {
   setItem(`best:${mode}`, score);
 }
+
+// Player name (asked for by Zig on first visit). null = never set,
+// which is what makes a visit count as "first".
+export function getPlayerName() {
+  const name = getItem('playerName', null);
+  return typeof name === 'string' && name.trim() ? name : null;
+}
+
+export function setPlayerName(name) {
+  setItem('playerName', name);
+}
