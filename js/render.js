@@ -54,10 +54,13 @@ function mix(a, b, amount) {
 }
 
 export class Renderer {
-  constructor(canvas, theme, skin = 'solid') {
+  // `grid` must match the Game it draws. Only the Customise preview
+  // passes anything other than GRID.
+  constructor(canvas, theme, skin = 'solid', grid = GRID) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.theme = theme;
+    this.grid = grid;
     // One renderer draws both the game snake and the idle menu snake,
     // so setting this once covers both.
     this.skin = SKIN_IDS.includes(skin) ? skin : 'solid';
@@ -70,7 +73,16 @@ export class Renderer {
 
     this.resize();
     // Re-fit whenever the stage changes size (rotation, window resize)
-    new ResizeObserver(() => this.resize()).observe(canvas);
+    this.resizeObserver = new ResizeObserver(() => this.resize());
+    this.resizeObserver.observe(canvas);
+  }
+
+  // The preview renderer is thrown away every time the Customise screen
+  // closes; without this its observer would keep the detached canvas
+  // alive, one per visit.
+  destroy() {
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
   }
 
   setTheme(theme) {
@@ -86,9 +98,9 @@ export class Renderer {
     // Render in device pixels for crisp lines on hi-DPI screens.
     const dpr = window.devicePixelRatio || 1;
     const cssSize = this.canvas.clientWidth || 300;
-    this.cell = Math.floor((cssSize * dpr) / GRID);
-    this.canvas.width = this.cell * GRID;
-    this.canvas.height = this.cell * GRID;
+    this.cell = Math.floor((cssSize * dpr) / this.grid);
+    this.canvas.width = this.cell * this.grid;
+    this.canvas.height = this.cell * this.grid;
   }
 
   // ----- one-shot effects, triggered from main.js on game events -----
@@ -121,7 +133,7 @@ export class Renderer {
   draw(game, dtMs, { dim = false, edgePulse = 0 } = {}) {
     this.time += dtMs;
     const { ctx, cell, theme } = this;
-    const size = cell * GRID;
+    const size = cell * this.grid;
     const t = game.interp();
 
     ctx.save();
@@ -188,8 +200,8 @@ export class Renderer {
     ctx.fillRect(0, 0, size, size);
     // Subtle checkerboard so movement is readable against the background
     ctx.fillStyle = theme.boardAlt;
-    for (let y = 0; y < GRID; y++) {
-      for (let x = 0; x < GRID; x++) {
+    for (let y = 0; y < this.grid; y++) {
+      for (let x = 0; x < this.grid; x++) {
         if ((x + y) % 2 === 0) ctx.fillRect(x * cell, y * cell, cell, cell);
       }
     }

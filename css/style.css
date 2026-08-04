@@ -376,6 +376,212 @@ body {
 
 .about-link { color: var(--accent); }
 
+/* ---------- customise screen ---------- */
+
+/* Fullscreen rather than inside the square stage: on a 380px phone the
+   stage is ~360px tall, which can't hold a preview plus five rows.
+   Same pattern as the gate and intro overlays. */
+.overlay--customise {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(6px);
+  padding: 12px;
+}
+
+/* Capped at the grid area's height, not the viewport: a centred grid
+   item taller than its area gets its top clipped with no way to scroll
+   back up. Capping first means it can never get there. */
+.panel--scroll {
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain; /* don't scroll the page behind it */
+}
+
+.customise {
+  width: min(440px, 100%);
+  gap: 16px;
+  padding: 16px 14px calc(16px + env(safe-area-inset-bottom));
+}
+
+.customise .opt-row { max-width: none; }
+
+.customise h2 { font-size: 22px; }
+
+/* Square so it matches the real board's aspect; capped by height so it
+   can't push the controls off a short screen. */
+.preview {
+  width: min(200px, 46vw, 26vh);
+  aspect-ratio: 1;
+}
+
+#preview-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.swatches {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr); /* 3x2 fits 380px comfortably */
+  gap: 6px;
+}
+
+.swatch {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  height: 52px;
+  padding: 6px 4px 5px;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+/* the snake stripe and food dot preview the palette itself */
+.sw-snake {
+  position: absolute;
+  top: 12px;
+  left: 14%;
+  width: 52%;
+  height: 7px;
+  border-radius: 999px;
+}
+
+.sw-food {
+  position: absolute;
+  top: 11px;
+  right: 16%;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.sw-name {
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: #fff;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.85);
+  mix-blend-mode: normal;
+}
+
+/* Paper is light: its label needs dark text instead */
+[data-theme] .swatch[data-action='theme:paper'] .sw-name {
+  color: #1c1b18;
+  text-shadow: 0 1px 3px rgb(255 255 255 / 0.85);
+}
+
+.swatch.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 12px var(--glow);
+}
+
+.swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- shared option rows (customise) ---------- */
+
+.opt-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  width: 100%;
+  max-width: 34ch;
+}
+
+.opt-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  text-align: left;
+}
+
+.seg {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--muted) 16%, transparent);
+}
+
+/* Four options don't fit across 380px — let them wrap to two rows
+   instead of shrinking the labels to nothing. */
+.seg--wrap { flex-wrap: wrap; }
+.seg--wrap .seg-btn { flex: 1 1 44%; }
+
+.seg-btn {
+  flex: 1;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  padding: 7px 4px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.seg-btn:hover { background: color-mix(in srgb, var(--muted) 20%, transparent); }
+
+.seg-btn.selected {
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 700;
+}
+
+/* Range inputs ignore colour inheritance, so the track and thumb are
+   styled explicitly per engine to follow the theme. */
+.slider {
+  width: 100%;
+  height: 22px;
+  margin: 0;
+  background: none;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+
+.slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 35%, transparent);
+}
+.slider::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 35%, transparent);
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -5px; /* centre the thumb on a 6px track */
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--glow);
+}
+.slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--glow);
+}
+
+.slider:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
 /* ---------- Zig the mascot ---------- */
 
 :root { --zig-size: clamp(240px, 52vh, 560px); }

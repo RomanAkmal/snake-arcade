@@ -4,9 +4,9 @@
 
 import { Game, chooseAiDirection } from './game.js';
 import { Renderer, Intro, Fx, SKINS } from './render.js';
-import { AudioEngine } from './audio.js';
+import { AudioEngine, TRACKS } from './audio.js';
 import { UI } from './ui.js';
-import { getTheme, applyTheme } from './themes.js';
+import { THEMES, getTheme, applyTheme } from './themes.js';
 import {
   getBestScore,
   setBestScore,
@@ -16,6 +16,12 @@ import {
   setThemeId,
   getSkinId,
   setSkinId,
+  getMusicTrack,
+  setMusicTrack,
+  getVolume,
+  setVolume,
+  getSfxOn,
+  setSfxOn,
 } from './storage.js';
 
 // Reassigned by setTheme(). Everything that draws reads it at call
@@ -61,8 +67,27 @@ function setTheme(id) {
   theme = getTheme(id);
   applyTheme(theme);
   renderer.setTheme(theme);
+  previewRenderer?.setTheme(theme);
   setThemeId(theme.id);
   return theme.id;
+}
+
+// Rush's final stretch runs the track this much faster.
+const RUSH_MUSIC_RATE = 1.3;
+
+function setTrack(id) {
+  const applied = audio.setTrack(id);
+  setMusicTrack(applied);
+  // 'off' stopped the loop; anything else needs it running again. Both
+  // calls are no-ops if there's nothing to do.
+  audio.startMusic();
+  return applied;
+}
+
+function setMasterVolume(v) {
+  const applied = audio.setVolume(v);
+  setVolume(applied);
+  return applied;
 }
 
 // Skin is a renderer setting, not a palette: it changes how the snake
@@ -71,7 +96,14 @@ function setTheme(id) {
 // applies to both at once.
 function setSkin(id) {
   const applied = renderer.setSkin(id);
+  previewRenderer?.setSkin(applied);
   setSkinId(applied);
+  return applied;
+}
+
+function setSfx(on) {
+  const applied = audio.setSfx(on);
+  setSfxOn(applied);
   return applied;
 }
 
@@ -97,7 +129,34 @@ const MENU_ITEMS = [
 let screen = SCREEN.INTRO;
 let gameState = 'playing'; // GAME sub-state: 'playing' | 'paused' | 'dying'
 let menuIndex = 0;
-let aboutOpen = false;
+// Which panel is open over the menu: null | 'about' | 'customise'
+let panel = null;
+
+// ---------- Customise preview ----------
+// A real Game and a real Renderer, just small: a 9×9 board makes the
+// cells big enough to actually judge a skin by. Reusing both means the
+// preview can't drift from what the game looks like. Both are created
+// when the screen opens and thrown away when it closes.
+const PREVIEW_GRID = 9;
+let previewGame = null;
+let previewRenderer = null;
+
+function startPreview(canvas) {
+  if (!canvas) return;
+  previewGame = new Game('preview', {
+    wrap: true,        // never dies at a wall
+    maxLength: 6,      // stays short so it can't box itself in
+    speedRamp: false,  // a preview shouldn't accelerate forever
+    grid: PREVIEW_GRID,
+  });
+  previewRenderer = new Renderer(canvas, theme, renderer.skin, PREVIEW_GRID);
+}
+
+function stopPreview() {
+  previewRenderer?.destroy(); // drops the ResizeObserver on a dead canvas
+  previewRenderer = null;
+  previewGame = null;
+}
 
 // ---------- intro sequence ----------
 // Phases: 'draw' (snake traces the word) → 'hold' (600ms glow pulse)
@@ -363,9 +422,16 @@ function celebrate(big) {
 
 function enterMenu() {
   screen = SCREEN.MENU;
-  aboutOpen = false;
+  panel = null;
+  stopPreview(); // in case we left straight from Customise
   fx.stopWhip(); // skipping mid-whip must not leave a stray body flying
   ui.hideZig();
+  // Music starts here rather than at the gate: the intro and Zig's
+  // welcome are scored beat by beat, and a loop underneath muddies
+  // them. This is still after the gate's gesture, so the autoplay
+  // guarantee holds. Idempotent — later menu visits change nothing.
+  audio.setMusicRate(1); // a Rush run may have left it sped up
+  audio.startMusic();
   if (!aiGame.alive) aiGame.reset();
   ui.setHudVisible(false);
   ui.setPauseVisible(false);
@@ -377,6 +443,7 @@ function startGame(mode) {
   fx.clear();
   ui.hideZig();
   game = mode === 'rush' ? new Game('rush', RUSH_OPTS) : new Game('classic');
+  audio.setMusicRate(1); // clear the previous run's urgency
   ui.setScore(0);
   ui.setCombo(1);
   ui.setBest(getBestScore(mode));
@@ -420,16 +487,38 @@ function selectMenuItem(id) {
   if (id === 'classic' || id === 'rush') {
     startGame(id);
   } else if (id === 'about') {
-    aboutOpen = true;
-    ui.showAbout(getPlayerName() || 'Chief');
+    panel = 'about';
+    openAbout();
+  } else if (id === 'customise') {
+    panel = 'customise';
+    openCustomise();
   } else {
-    // customise / leaderboard — later phases
-    ui.toast('Coming soon ✨');
+    ui.toast('Coming soon ✨'); // leaderboard — Phase 6
   }
 }
 
-function closeAbout() {
-  aboutOpen = false;
+function openAbout() {
+  ui.showAbout({ name: getPlayerName() || 'Chief' });
+}
+
+function openCustomise() {
+  const canvas = ui.showCustomise({
+    themes: Object.values(THEMES),
+    theme: theme.id,
+    skins: SKINS,
+    skin: renderer.skin,
+    tracks: TRACKS,
+    track: audio.trackId,
+    sfxOn: audio.sfxOn,
+    volume: audio.volume,
+  });
+  startPreview(canvas);
+}
+
+// Back button and Esc share this — whichever panel is open.
+function closePanel() {
+  panel = null;
+  stopPreview();
   ui.showMenu(MENU_ITEMS, menuIndex);
   audio.click();
 }
@@ -481,15 +570,15 @@ ui.onAction((action) => {
   } else if (action.startsWith('menu-hover:')) {
     setMenuIndex(Number(action.slice(11)));
   } else if (action === 'menu-back') {
-    closeAbout();
+    closePanel();
   } else if (action === 'change-name') {
     audio.click();
-    aboutOpen = false;
+    panel = null;
     namePrefill = getPlayerName() ?? ''; // editing your own name
     enterWelcome('rename');
   } else if (action === 'replay-intro') {
     audio.click();
-    aboutOpen = false;
+    panel = null;
     ui.hideOverlay();
     introPlayed = false; // let the show run again this session
     enterIntro();
@@ -499,6 +588,30 @@ ui.onAction((action) => {
     audio.click();
     namePrefill = '';
     enterWelcome('rename');
+    // ----- Customise: apply instantly, persist, and give a short
+    // sound preview. Selections are re-marked in place rather than by
+    // rebuilding the panel, which would restart the preview snake.
+  } else if (action.startsWith('theme:')) {
+    const id = setTheme(action.slice(6));
+    ui.setOptionSelection('theme', id);
+    // pitch climbs with the theme's position, so each one sounds distinct
+    audio.letterPop(Object.keys(THEMES).indexOf(id));
+  } else if (action.startsWith('skin:')) {
+    const id = setSkin(action.slice(5));
+    ui.setOptionSelection('skin', id);
+    audio.pop();
+  } else if (action.startsWith('track:')) {
+    const id = setTrack(action.slice(6));
+    ui.setOptionSelection('track', id);
+    audio.click(); // the track itself is the rest of the preview
+  } else if (action.startsWith('sfx:')) {
+    const on = setSfx(action.slice(4) === 'on');
+    ui.setOptionSelection('sfx', on ? 'on' : 'off');
+    if (on) audio.click(); // turning them off is its own preview
+  } else if (action.startsWith('volume:')) {
+    setMasterVolume(action.slice(7)); // fires continuously while dragging
+  } else if (action === 'volume-preview') {
+    audio.click(); // on release: something to judge the new level by
   } else if (action === 'zig-submit') {
     audio.click();
     submitZigName();
@@ -587,6 +700,18 @@ function update(dt) {
     }
     if (!aiGame.alive) aiGame.reset(); // safety net — should never trigger
 
+    // Customise preview: same autopilot, its own small board. Silent —
+    // the only sounds on this screen are the setting previews.
+    if (previewGame) {
+      if (!previewGame.dirQueue.length) {
+        previewGame.queueDirection(chooseAiDirection(previewGame));
+      }
+      for (const e of previewGame.advance(dt)) {
+        if (e.type === 'eat') previewRenderer.onEat(e.x, e.y);
+      }
+      if (!previewGame.alive) previewGame.reset();
+    }
+
     // welcome stage timing
     if (screen === SCREEN.WELCOME) {
       if (typeActive) {
@@ -640,6 +765,8 @@ function update(dt) {
       ui.setTimer(sec);
       const urgent = game.timeLeft <= RUSH_URGENT_MS;
       ui.setTimerUrgent(urgent);
+      // whichever track is playing, it runs hot for the last 10s
+      audio.setMusicRate(urgent ? RUSH_MUSIC_RATE : 1);
       if (urgent && sec !== lastTickSec && sec > 0) {
         lastTickSec = sec;
         audio.timeTick(10 - sec); // pitch climbs as time runs out
@@ -659,6 +786,8 @@ function frame(now) {
   update(dt);
   if (screen === SCREEN.INTRO || screen === SCREEN.MENU || screen === SCREEN.WELCOME) {
     renderer.draw(aiGame, dt, { dim: true });
+    // undimmed: the preview is the thing being judged
+    if (previewGame) previewRenderer.draw(previewGame, dt);
   } else {
     const edgePulse =
       screen === SCREEN.GAME &&
@@ -721,12 +850,12 @@ window.addEventListener('keydown', (e) => {
   }
 
   if (screen === SCREEN.MENU) {
-    if (aboutOpen) {
+    if (panel) {
       if (key === 'escape' || key === 'backspace') {
         e.preventDefault();
-        closeAbout();
+        closePanel();
       }
-      return;
+      return; // an open panel owns the keyboard (the slider needs arrows)
     }
     if (key === 'arrowup' || key === 'w') {
       e.preventDefault();
@@ -824,16 +953,34 @@ stage.addEventListener(
 
 // ---------- quality-of-life ----------
 
-// Auto-pause when the tab loses focus so nobody dies off-screen
+// Auto-pause when the tab loses focus so nobody dies off-screen — and
+// silence the music with it. Browsers throttle setInterval to about
+// once a second in a hidden tab, which the music scheduler can't keep a
+// beat through; it would come back as sporadic blips.
+let musicWasPlaying = false;
+
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden && screen === SCREEN.GAME && gameState === 'playing') {
-    pauseGame();
+  if (document.hidden) {
+    musicWasPlaying = audio.isMusicPlaying();
+    audio.stopMusic();
+    if (screen === SCREEN.GAME && gameState === 'playing') pauseGame();
+  } else if (musicWasPlaying) {
+    // only resume what we ourselves stopped: a player still on the gate
+    // or in the intro must not get music early
+    musicWasPlaying = false;
+    audio.startMusic();
   }
 });
 
 // ---------- boot ----------
 
 ui.setBest(getBestScore(game.mode));
+// Audio settings are restored now but make no sound: there's no
+// AudioContext until the gate's gesture, and startMusic() waits for
+// the menu.
+audio.setVolume(getVolume());
+audio.setSfx(getSfxOn());
+audio.setTrack(getMusicTrack());
 // Fetch Zig now, while the gate and intro are on screen, so the welcome
 // screen never sits there waiting on a network round trip.
 ui.loadMascot('assets/mascot.svg').catch(() => {});
@@ -855,7 +1002,18 @@ window.__snakeDebug = {
   startGame,
   setTheme,
   setSkin,
+  setTrack,
+  setMasterVolume,
+  setSfx,
   SKINS,
+  TRACKS,
+  audio,
+  get panel() {
+    return panel;
+  },
+  get previewGame() {
+    return previewGame;
+  },
   get theme() {
     return theme;
   },

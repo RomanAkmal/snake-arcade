@@ -35,6 +35,21 @@ export class UI {
       const btn = e.target.closest('[data-action]');
       if (btn && this.actionHandler) this.actionHandler(btn.dataset.action);
     });
+    // The volume slider is rebuilt with the panel's innerHTML, so both
+    // listeners are delegated rather than attached to the element.
+    // 'input' fires continuously while dragging (live volume), 'change'
+    // once on release (a blip to judge the new level by).
+    this.overlayEl.addEventListener('input', (e) => {
+      if (e.target.id === 'vol' && this.actionHandler) {
+        this.setVolumeLabel(e.target.value);
+        this.actionHandler('volume:' + e.target.value);
+      }
+    });
+    this.overlayEl.addEventListener('change', (e) => {
+      if (e.target.id === 'vol' && this.actionHandler) {
+        this.actionHandler('volume-preview');
+      }
+    });
     // Hovering a menu item moves the selection (same as arrow keys)
     this.overlayEl.addEventListener('mouseover', (e) => {
       const item = e.target.closest('.menu-item');
@@ -387,10 +402,90 @@ export class UI {
     });
   }
 
-  showAbout(playerName) {
-    // playerName is restricted to [a-zA-Z0-9 ] at input time, but
-    // escape anyway — it comes back from localStorage
-    const safeName = String(playerName ?? '')
+  // Theme swatches, skin/music/SFX pickers and the volume slider, over
+  // a live preview snake. The preview canvas is created here and handed
+  // to main.js, which owns the little Game that drives it.
+  showCustomise({ themes, theme, skins, skin, tracks, track, sfxOn, volume }) {
+    const seg = (action, items, current) =>
+      items
+        .map(
+          (it) =>
+            `<button class="seg-btn${it.id === current ? ' selected' : ''}"
+                     data-action="${action}:${it.id}">${it.name}</button>`
+        )
+        .join('');
+
+    // Swatch colours come from our own THEMES table, never from input
+    this.overlayEl.className = 'overlay overlay--customise';
+    this.overlayEl.innerHTML = `
+      <div class="panel panel--scroll customise">
+        <h2>Customise</h2>
+        <div class="preview"><canvas id="preview-canvas"></canvas></div>
+
+        <div class="opt-row">
+          <span class="opt-label">Theme</span>
+          <div class="swatches">
+            ${themes
+              .map(
+                (t) => `
+              <button class="swatch${t.id === theme ? ' selected' : ''}"
+                      data-action="theme:${t.id}" title="${t.name}"
+                      aria-label="${t.name}"
+                      style="background:${t.board};border-color:${t.accent}">
+                <span class="sw-snake" style="background:${t.snake}"></span>
+                <span class="sw-food" style="background:${t.food}"></span>
+                <span class="sw-name">${t.name}</span>
+              </button>`
+              )
+              .join('')}
+          </div>
+        </div>
+
+        <div class="opt-row">
+          <span class="opt-label">Skin</span>
+          <div class="seg seg--wrap">${seg('skin', skins, skin)}</div>
+        </div>
+
+        <div class="opt-row">
+          <span class="opt-label">Music</span>
+          <div class="seg seg--wrap">${seg('track', tracks, track)}</div>
+        </div>
+
+        <div class="opt-row">
+          <span class="opt-label">Sound effects</span>
+          <div class="seg">
+            <button class="seg-btn${sfxOn ? ' selected' : ''}" data-action="sfx:on">On</button>
+            <button class="seg-btn${sfxOn ? '' : ' selected'}" data-action="sfx:off">Off</button>
+          </div>
+        </div>
+
+        <div class="opt-row">
+          <span class="opt-label">Volume <span id="vol-val">${volume}</span></span>
+          <input type="range" id="vol" class="slider" min="0" max="100"
+                 step="1" value="${volume}" aria-label="Master volume">
+        </div>
+
+        <button class="btn" data-action="menu-back">Back</button>
+        <p class="hint">Esc returns to the menu</p>
+      </div>`;
+    this.overlayEl.hidden = false;
+    return this.overlayEl.querySelector('#preview-canvas');
+  }
+
+  // Re-mark one group's selection without rebuilding the panel — a
+  // rebuild would restart the preview and drop the slider mid-drag.
+  setOptionSelection(action, id) {
+    this.overlayEl
+      .querySelectorAll(`[data-action^="${action}:"]`)
+      .forEach((btn) => {
+        btn.classList.toggle('selected', btn.dataset.action === `${action}:${id}`);
+      });
+  }
+
+  showAbout({ name }) {
+    // name is restricted to [a-zA-Z0-9 ] at input time, but escape
+    // anyway — it comes back from localStorage
+    const safeName = String(name ?? '')
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     this.overlayEl.className = 'overlay overlay--menu';
     this.overlayEl.innerHTML = `
@@ -411,6 +506,12 @@ export class UI {
         </div>
       </div>`;
     this.overlayEl.hidden = false;
+  }
+
+  // Live number beside the slider while dragging
+  setVolumeLabel(v) {
+    const el = document.getElementById('vol-val');
+    if (el) el.textContent = v;
   }
 
   showPause() {

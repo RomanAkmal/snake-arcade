@@ -270,9 +270,74 @@ only decides what Zig says afterwards: 'greet' asks for one,
 opens the name form empty; About gained "Replay intro" and now says
 the name is saved in this browser only.
 
+Phase 5c done: music. Three synthesized loops in audio.js (Chill —
+slow triangle pentatonic; Arcade — 115ms square-wave chiptune, Am-C-
+Dm-C; Focus — 520ms sine pulse at 110Hz with rests in the pattern)
+plus Off. Each track is DATA: a step sequence of semitone offsets
+from a root, with a voice, tempo and bass rule — one shared
+look-ahead scheduler plays whichever is selected, so a fourth track
+is a new entry in MUSIC and nothing else. The scheduler is a 25ms
+setInterval with a 120ms lookahead, NOT the rAF loop: rAF is
+throttled hard in background tabs and the beat would stall. It obeys
+the same rule as ready() — while the context is suspended it
+schedules NOTHING and rebases its clock, because a backlog would
+dump out as a burst. Music starts at enterMenu(), not at the gate:
+the intro and Zig's welcome are scored beat by beat and a loop
+underneath muddies them (still after the gate's gesture, so the
+autoplay guarantee holds). Rush multiplies the step rate by
+RUSH_MUSIC_RATE (1.3) for the final 10s and resets it on
+startGame/enterMenu. Music also stops while the tab is hidden and
+resumes on return — only if we were the ones who stopped it, or a
+player still on the gate would get music early.
+
+Audio buses: master -> {musicGain, sfxGain}. Volume (0-100, default
+70, scaled by MASTER_HEADROOM 0.4) rides on master so it governs
+both; the SFX toggle mutes sfxGain only, so music keeps playing.
+Both are ramped with setTargetAtTime rather than assigned — a slider
+sets gain dozens of times a second and abrupt changes click. note()
+defaults to the SFX bus; the music scheduler passes musicGain
+explicitly.
+
+Phase 5d done: the Customise screen, reached from the menu. Sections:
+6 theme swatches (each painted in its own board/snake/food colours),
+4 skins, Music (Chill/Arcade/Focus/Off), SFX on/off, volume slider.
+Everything applies instantly, persists, and re-marks its selection
+IN PLACE via ui.setOptionSelection — rebuilding the panel would
+restart the preview and drop the slider mid-drag. Back button and
+Esc both call closePanel(). The track selector and volume slider
+MOVED here out of About; About is back to blurb, name-change, links
+(and Replay intro).
+
+The preview snake is a real Game plus a real Renderer, just small —
+so it cannot drift from what the game actually looks like. That
+needed a `grid` option on both (default GRID, so Classic is
+untouched): a 21x21 board shrunk to 200px gives ~9px cells, far too
+small to judge a skin by, while 9x9 gives ~22px. GRID is no longer
+read inside Game or Renderer — they use this.grid — and
+chooseAiDirection takes it from game.grid. The preview runs the same
+autopilot with wrap + maxLength 6, verified alive for 1500 ticks. It
+is created when the screen opens and destroyed when it closes;
+Renderer.destroy() disconnects the ResizeObserver, which would
+otherwise pin a detached canvas once per visit.
+
+Menu panels are now one `panel` variable (null | 'about' |
+'customise') instead of the old aboutOpen boolean; an open panel owns
+the keyboard, since the volume slider needs arrow keys.
+
+Sound previews on change: theme plays letterPop pitched by the
+theme's index (each sounds different), skin plays pop, track plays
+click and then the track itself, SFX-on plays click (turning them
+off is its own preview), volume plays click on release.
+
+Layout: .overlay--customise is fullscreen (fixed, z 65) like the gate
+and intro, not inside the square stage — at 380px the stage is only
+~360px tall, which can't hold a preview plus five rows. The panel
+caps at max-height 100% of its grid area BEFORE scrolling, because a
+centred grid item taller than its area has its top clipped with no
+way to scroll back. Skin and Music segments wrap to two rows at
+narrow widths rather than squeezing their labels.
+
 remove \_\_snakeDebug before final deploy"
 
-Next: Phase 5c — music. Then 5d — the Customise screen (menu entry,
-live animated preview snake, wired to setTheme/setSkin). Then
-Phase 6 — leaderboard (Supabase). Then Phase 7 — launch: README,
-GitHub link, share card, analytics, deploy.
+Next: Phase 6 — leaderboard (Supabase). Then Phase 7 — launch:
+README, GitHub link, share card, analytics, deploy.

@@ -58,3 +58,32 @@ export function getSkinId() {
 export function setSkinId(id) {
   setItem('skin', id);
 }
+
+// Background music track id ('off' | 'chill' | 'arcade' | 'focus').
+export function getMusicTrack() {
+  return getItem('music', 'chill');
+}
+
+export function setMusicTrack(id) {
+  setItem('music', id);
+}
+
+// Sound effects on/off. Independent of the music track and of volume.
+export function getSfxOn() {
+  return getItem('sfx', true) !== false;
+}
+
+export function setSfxOn(on) {
+  setItem('sfx', !!on);
+}
+
+// Master volume, 0–100. Clamped on read as well as write: a hand-edited
+// localStorage value must not be able to blow the mix out.
+export function getVolume() {
+  const v = Number(getItem('volume', 70));
+  return Number.isFinite(v) ? Math.min(100, Math.max(0, Math.round(v))) : 70;
+}
+
+export function setVolume(v) {
+  setItem('volume', Math.min(100, Math.max(0, Math.round(Number(v) || 0))));
+}

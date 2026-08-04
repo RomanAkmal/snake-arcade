@@ -30,6 +30,10 @@ export class Game {
   //   chainDecays   — Rush: the multiplier falls back to ×1 when the
   //                   window lapses (Classic just resets on next eat)
   //   timeLimitMs   — Rush: game ends with a 'timeout' event; 0 = none
+  //   grid          — board size in cells. Only the Customise preview
+  //                   changes it (a small board so its cells are big
+  //                   enough to judge a skin by); everything else uses
+  //                   GRID and behaves exactly as before.
   constructor(
     mode = 'classic',
     {
@@ -40,9 +44,11 @@ export class Game {
       chainWindowMs = 3000,
       chainDecays = false,
       timeLimitMs = 0,
+      grid = GRID,
     } = {}
   ) {
     this.mode = mode;
+    this.grid = grid;
     this.wrap = wrap;
     this.maxLength = maxLength;
     this.speedRamp = speedRamp;
@@ -54,7 +60,7 @@ export class Game {
   }
 
   reset() {
-    const mid = Math.floor(GRID / 2);
+    const mid = Math.floor(this.grid / 2);
     // head first; snake starts length 4, moving right
     this.snake = [
       { x: mid, y: mid },
@@ -157,10 +163,10 @@ export class Game {
     let nx = head.x + this.dir.x;
     let ny = head.y + this.dir.y;
 
-    if (nx < 0 || ny < 0 || nx >= GRID || ny >= GRID) {
+    if (nx < 0 || ny < 0 || nx >= this.grid || ny >= this.grid) {
       if (!this.wrap) return this.die(events, 'wall'); // Classic: walls kill
-      nx = (nx + GRID) % GRID; // wrap modes: teleport to the far side
-      ny = (ny + GRID) % GRID;
+      nx = (nx + this.grid) % this.grid; // wrap modes: teleport to the far side
+      ny = (ny + this.grid) % this.grid;
     }
 
     const ateIdx = this.foods.findIndex((f) => f && nx === f.x && ny === f.y);
@@ -216,8 +222,8 @@ export class Game {
       if (f && i !== slot) taken.add(`${f.x},${f.y}`);
     });
     const free = [];
-    for (let y = 0; y < GRID; y++) {
-      for (let x = 0; x < GRID; x++) {
+    for (let y = 0; y < this.grid; y++) {
+      for (let x = 0; x < this.grid; x++) {
         if (!taken.has(`${x},${y}`)) free.push({ x, y });
       }
     }
@@ -237,6 +243,7 @@ export class Game {
 export function chooseAiDirection(game) {
   const head = game.snake[0];
   const { food } = game;
+  const G = game.grid ?? GRID; // the Customise preview runs a smaller board
   let best = game.dir; // fallback: keep going (only if every move is fatal)
   let bestCost = Infinity;
 
@@ -244,9 +251,9 @@ export function chooseAiDirection(game) {
     if (d.x === -game.dir.x && d.y === -game.dir.y) continue; // no 180°
     let nx = head.x + d.x;
     let ny = head.y + d.y;
-    const wraps = nx < 0 || ny < 0 || nx >= GRID || ny >= GRID;
-    nx = (nx + GRID) % GRID;
-    ny = (ny + GRID) % GRID;
+    const wraps = nx < 0 || ny < 0 || nx >= G || ny >= G;
+    nx = (nx + G) % G;
+    ny = (ny + G) % G;
 
     // never step on the body (tail vacates unless this move eats)
     const eats = food && nx === food.x && ny === food.y;
@@ -257,7 +264,7 @@ export function chooseAiDirection(game) {
     // the last resort); dead ends discouraged so it rarely traps itself.
     let cost = food ? Math.abs(nx - food.x) + Math.abs(ny - food.y) : 0;
     if (wraps) cost += 1000;
-    if (freeNeighbours(nx, ny, body) === 0) cost += 500;
+    if (freeNeighbours(nx, ny, body, G) === 0) cost += 500;
 
     if (cost < bestCost) {
       bestCost = cost;
@@ -267,11 +274,11 @@ export function chooseAiDirection(game) {
   return best;
 }
 
-function freeNeighbours(x, y, body) {
+function freeNeighbours(x, y, body, G = GRID) {
   let free = 0;
   for (const d of DIRS) {
-    const nx = (x + d.x + GRID) % GRID;
-    const ny = (y + d.y + GRID) % GRID;
+    const nx = (x + d.x + G) % G;
+    const ny = (y + d.y + G) % G;
     if (!body.some((s) => s.x === nx && s.y === ny)) free++;
   }
   return free;
