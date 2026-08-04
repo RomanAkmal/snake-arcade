@@ -39,3 +39,22 @@ export function getPlayerName() {
 export function setPlayerName(name) {
   setItem('playerName', name);
 }
+
+// Chosen theme id. Unknown/missing ids fall back to midnight in
+// getTheme(), so a renamed theme can never leave the game unstyled.
+export function getThemeId() {
+  return getItem('theme', 'midnight');
+}
+
+export function setThemeId(id) {
+  setItem('theme', id);
+}
+
+// Chosen snake skin. Independent of the theme — any skin, any theme.
+export function getSkinId() {
+  return getItem('skin', 'solid');
+}
+
+export function setSkinId(id) {
+  setItem('skin', id);
+}

@@ -3,7 +3,7 @@
 // and input routing (keyboard + swipe) per screen.
 
 import { Game, chooseAiDirection } from './game.js';
-import { Renderer, Intro, Fx } from './render.js';
+import { Renderer, Intro, Fx, SKINS } from './render.js';
 import { AudioEngine } from './audio.js';
 import { UI } from './ui.js';
 import { getTheme, applyTheme } from './themes.js';
@@ -12,9 +12,16 @@ import {
   setBestScore,
   getPlayerName,
   setPlayerName,
+  getThemeId,
+  setThemeId,
+  getSkinId,
+  setSkinId,
 } from './storage.js';
 
-const theme = getTheme('midnight');
+// Reassigned by setTheme(). Everything that draws reads it at call
+// time (or is handed the new object), so a switch applies immediately —
+// including mid-game.
+let theme = getTheme(getThemeId());
 applyTheme(theme);
 
 const canvas = document.getElementById('game-canvas');
@@ -37,7 +44,7 @@ const RUSH_OPTS = {
 };
 const RUSH_URGENT_MS = 10_000; // final stretch: red edges, big timer, ticks
 let lastTickSec = 0;           // dedupes the once-per-second countdown tick
-const renderer = new Renderer(canvas, theme);
+const renderer = new Renderer(canvas, theme, getSkinId());
 const fx = new Fx(document.getElementById('fx-canvas'));
 const audio = new AudioEngine();
 const ui = new UI();
@@ -45,6 +52,28 @@ const ui = new UI();
 // Checked live (not cached) so an OS-level toggle applies immediately
 const prefersReducedMotion = () =>
   window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Swap palette everywhere at once: CSS variables for the page chrome,
+// the renderer for the canvas, and localStorage so it sticks. Safe to
+// call from any screen — the intro keeps the palette it started with
+// (it's a 4s cinematic, not worth re-colouring mid-flight).
+function setTheme(id) {
+  theme = getTheme(id);
+  applyTheme(theme);
+  renderer.setTheme(theme);
+  setThemeId(theme.id);
+  return theme.id;
+}
+
+// Skin is a renderer setting, not a palette: it changes how the snake
+// is drawn while the colours keep coming from the active theme. One
+// renderer draws the game snake and the idle menu snake, so this
+// applies to both at once.
+function setSkin(id) {
+  const applied = renderer.setSkin(id);
+  setSkinId(applied);
+  return applied;
+}
 
 // ---------- screen manager ----------
 
@@ -111,20 +140,20 @@ function startFromGate() {
   enterIntro();
 }
 
+// Everyone sees the logo intro — a returning player is not a reason to
+// cut the show (it's the part people are shown first). What the saved
+// name changes is only what Zig says afterwards: 'greet' asks for a
+// name, 'return' welcomes them back.
+const visitMode = () => (getPlayerName() ? 'return' : 'greet');
+
 function enterIntro() {
-  // Returning players (saved name) skip the logo entirely — Zig just
-  // says hi. First-timers get the logo, then Zig asks their name.
-  if (getPlayerName()) {
-    introPlayed = true;
-    enterWelcome('return');
-    return;
-  }
-  // Reduced motion (or a replay) skips the logo but still gets the
-  // name flow. Either way this session has now "had" its intro.
+  // Reduced motion (or a replay inside the same session) skips the
+  // logo but still gets Zig. Either way this session has now had its
+  // intro.
   const skip = introPlayed || prefersReducedMotion();
   introPlayed = true;
   if (skip) {
-    enterWelcome('greet');
+    enterWelcome(visitMode());
     return;
   }
   screen = SCREEN.INTRO;
@@ -143,14 +172,14 @@ function enterIntro() {
 
 function skipIntro() {
   if (screen !== SCREEN.INTRO) return;
-  intro = null; // no fade — jump ahead (Zig still needs a name)
+  intro = null; // no fade — jump straight to Zig
   fx.clear();
-  enterWelcome('greet');
+  enterWelcome(visitMode());
 }
 
 function finishIntro() {
   intro.fadeT = INTRO_FADE_MS; // logo crossfades out over what follows
-  enterWelcome('greet');
+  enterWelcome(visitMode());
 }
 
 // ---------- Zig's welcome ----------
@@ -160,7 +189,9 @@ function finishIntro() {
 // Stage timing is driven from update(dt); Zig's idle blinks/flicks are
 // the only timers, owned and cleared by ui.hideZig().
 
-const RETURN_HOLD_MS = 1600;
+// Long enough to read the line and reach for "not you?", short enough
+// that a returning player isn't kept waiting.
+const RETURN_HOLD_MS = 2400;
 const GREET_PAUSE_MS = 1200;   // after the hello line, before the form
 const CONFIRM_HOLD_MS = 1100;  // "Let's play!" + bounce, then menu
 const TYPE_CHAR_MS = 38;
@@ -176,6 +207,7 @@ const RETURN_LINES = [
 ];
 
 let welcomeMode = null;  // 'greet' | 'return' | 'rename'
+let namePrefill = '';    // what the 'rename' form opens with
 // 'load' | 'enter' (body whip) | 'hiss' | 'greet' | 'ask' | 'confirm' | 'return'
 let welcomeStage = null;
 let stageTimer = 0;
@@ -193,7 +225,8 @@ async function enterWelcome(mode) {
   ui.setHudVisible(false);
   ui.setPauseVisible(false);
 
-  const ok = await ui.loadMascot('assets/mascot.svg');
+  // Usually already resolved — the fetch starts at boot (see below)
+  const ok = await ui.loadMascot('assets/mascot.svg').catch(() => false);
   // if the fetch failed (or something else took over meanwhile), bail
   if (screen !== SCREEN.WELCOME) return;
   if (!ok) {
@@ -210,7 +243,7 @@ async function enterWelcome(mode) {
     welcomeStage = 'ask';
     ui.showZig('pop', rm);
     ui.setBubbleText('What should I call you?');
-    ui.showBubbleNameForm(getPlayerName() ?? '');
+    ui.showBubbleNameForm(namePrefill);
     audio.hiss();
   } else if (rm) {
     // reduced motion: static Zig, content only
@@ -246,6 +279,7 @@ function beginReturnLine() {
   stageTimer = 0;
   const line = RETURN_LINES[Math.floor(Math.random() * RETURN_LINES.length)];
   ui.setBubbleText(line.replace(/\{name\}/g, getPlayerName()));
+  ui.showBubbleNotYou(); // the name is saved per browser, not per person
   celebrate(false); // little sparkle shower
 }
 
@@ -451,14 +485,29 @@ ui.onAction((action) => {
   } else if (action === 'change-name') {
     audio.click();
     aboutOpen = false;
+    namePrefill = getPlayerName() ?? ''; // editing your own name
+    enterWelcome('rename');
+  } else if (action === 'replay-intro') {
+    audio.click();
+    aboutOpen = false;
+    ui.hideOverlay();
+    introPlayed = false; // let the show run again this session
+    enterIntro();
+  } else if (action === 'zig-rename') {
+    // "not you?" on the returning greeting — a different person is at
+    // the keyboard, so the form starts empty
+    audio.click();
+    namePrefill = '';
     enterWelcome('rename');
   } else if (action === 'zig-submit') {
     audio.click();
     submitZigName();
   } else if (action === 'zig-skip') {
     audio.click();
-    // 'just play': first-timers become "Chief"; a rename keeps the old name
-    if (welcomeMode !== 'rename') setPlayerName('Chief');
+    // 'just play' means "don't ask me". Editing your own name (the form
+    // came prefilled) keeps it; a first-timer or someone who just said
+    // "not you?" becomes Chief, because the stored name isn't theirs.
+    if (welcomeMode !== 'rename' || !namePrefill) setPlayerName('Chief');
     enterMenu();
   } else if (action === 'zig-type') {
     audio.typeTick(); // soft tick per keystroke in the name input
@@ -785,6 +834,9 @@ document.addEventListener('visibilitychange', () => {
 // ---------- boot ----------
 
 ui.setBest(getBestScore(game.mode));
+// Fetch Zig now, while the gate and intro are on screen, so the welcome
+// screen never sits there waiting on a network round trip.
+ui.loadMascot('assets/mascot.svg').catch(() => {});
 enterGate();
 requestAnimationFrame(frame);
 
@@ -801,6 +853,15 @@ window.__snakeDebug = {
   update,
   enterIntro,
   startGame,
+  setTheme,
+  setSkin,
+  SKINS,
+  get theme() {
+    return theme;
+  },
+  get skin() {
+    return renderer.skin;
+  },
   get intro() {
     return intro;
   },

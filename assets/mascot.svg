@@ -1,5 +1,8 @@
 <svg viewBox="0 0 320 320" xmlns="http://www.w3.org/2000/svg">
-  <rect width="320" height="320" fill="#131829"/>
+  <!-- No background rect: Zig is composited straight onto the page, so
+       his silhouette is what casts the light-theme shadow. Keep the
+       three neck strokes first — ui.js groups everything after them
+       into #zig-head so the head can nod on its own. -->
   <!-- neck from left edge -->
   <path d="M -10 268 C 85 268 55 175 128 152" fill="none" stroke="#22c55e" stroke-width="58" stroke-linecap="round"/>
   <path d="M -10 268 C 85 268 55 175 128 152" fill="none" stroke="#4ade80" stroke-width="42" stroke-linecap="round"/>

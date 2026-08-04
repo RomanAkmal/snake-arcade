@@ -197,5 +197,82 @@ full menu→rush→timeout→replay→classic flow, Classic regression.
 
 remove \_\_snakeDebug before final deploy"
 
-Next: Phase 5 — Customise (6 themes + 4 skins, live preview,
-persisted via storage.js)
+Phase 5a done: all six themes. themes.js holds midnight, retro,
+sunset, paper, OLED and CRT (only midnight existed before — retro/
+sunset/paper had never been written, despite the spec listing them).
+applyTheme writes the chrome vars, plus --glow and a data-theme
+attribute on `<html>`. --glow is the colour of every neon text-shadow,
+so paper sets it to transparent and opts out of glowing without
+touching its accent. Anything a palette can't express hangs off
+[data-theme] in style.css: OLED gets a hairline accent edge on the
+canvas (pure-black board on a pure-black page has no visible
+boundary), CRT gets scanlines + flicker + vignette + phosphor bloom.
+TRAP: the CRT bloom filter is on #game-canvas, NOT .app — a filter
+makes an element the containing block for position:fixed children,
+and .app holds the fullscreen gate and intro overlays, which would
+suddenly be clipped to the board. The scanline layers are fixed body
+pseudo-elements so they escape body's grid instead of becoming grid
+items. CRT's `danger` stays warm red on purpose: a green alarm on a
+green screen reads as no alarm.
+
+Phase 5b done: all four snake skins, in render.js (a render-layer
+option, independent of theme — every skin paints with the active
+theme's snake colours, so all 4 work with all 6). solid = the
+original rounded segments; gradient = head colour blending into body
+then toward the board at the tail; neon = tapering, fading links
+between segment centres; pixel = hard fillRect blocks, no rounding,
+no glow, snapped to whole pixels, with square eyes. All four draw
+from one snakePoints() helper, so they share the interpolation and
+the wrap-snap. TRAP: neon joins consecutive segments, so it skips any
+link longer than 1.5 cells — without that, every wrap draws a bright
+stripe across the board, which the idle menu snake (wrap:true) would
+trigger constantly. One Renderer draws both the game snake and the
+idle menu snake, so setTheme/setSkin cover both at once.
+
+Theme + skin persist via storage.js (theme / skin keys) and apply
+live, mid-game included — the renderer reads this.theme every frame
+and caches nothing. There is NO Customise UI yet: main.setTheme(id)
+and main.setSkin(id) are currently reachable only through
+__snakeDebug, so the Customise screen must call them (and removing
+the debug hook before deploy must not orphan them).
+
+Zig is transparent now: the background rect is gone from
+assets/mascot.svg, because drop-shadow follows the alpha silhouette
+and would otherwise render a rectangle. ui.js still strips a rect,
+but only a FIRST-CHILD one (editors re-add a full-bleed background on
+export; a later rect could be real artwork). The three neck strokes
+must stay the first three elements — ui.js groups children.slice(3)
+into #zig-head. Paper alone gives him a contact + ambient drop-shadow
+so he reads on cream; his own colours are never themed — he's a
+character, not chrome.
+
+Serve/loading fixes: serve.py was rewritten. The "it loads forever"
+bug was the stdlib's single-threaded HTTPServer — Chrome opens
+speculative connections it never sends a request on, the server
+accepts one and blocks reading a request line that never comes, and
+the whole site stalls. Now ThreadingHTTPServer + HTTP/1.1 keep-alive,
+no-store headers (stale style.css was costing debugging sessions),
+dual-stack bind so `localhost` resolving to ::1 doesn't wait out a
+failure, port fallback 8000-8009, errors-only logging (every console
+write can stall the server if the Windows terminal is in QuickEdit
+selection mode), SO_REUSEADDR off on Windows (there it lets a second
+server bind a port that's already in use — two servers, half the
+requests going to the stale one), and ASCII-only output because the
+console is cp1252 and an arrow character crashed it on startup. The
+mascot fetch now starts at boot with a 5s timeout instead of blocking
+the welcome screen.
+
+Intro no longer skips for returning players — everyone gets the full
+show on every load (it's what people are shown first). A saved name
+only decides what Zig says afterwards: 'greet' asks for one,
+'return' welcomes them back. The returning greeting carries a
+"not you?" button (the name is per browser, not per person) that
+opens the name form empty; About gained "Replay intro" and now says
+the name is saved in this browser only.
+
+remove \_\_snakeDebug before final deploy"
+
+Next: Phase 5c — music. Then 5d — the Customise screen (menu entry,
+live animated preview snake, wired to setTheme/setSkin). Then
+Phase 6 — leaderboard (Supabase). Then Phase 7 — launch: README,
+GitHub link, share card, analytics, deploy.

@@ -9,6 +9,9 @@
   --muted: #64748b;
   --accent: #4ade80;
   --danger: #ef4444;
+  /* colour of every neon text-shadow. Themes that shouldn't glow
+     (paper) set this to transparent instead of dropping the shadows. */
+  --glow: var(--accent);
 }
 
 * { box-sizing: border-box; }
@@ -73,7 +76,7 @@ body {
   font-size: 18px;
   font-weight: 700;
   color: var(--accent);
-  text-shadow: 0 0 12px var(--accent);
+  text-shadow: 0 0 12px var(--glow);
   animation: combo-pop 0.25s ease-out;
 }
 
@@ -150,7 +153,7 @@ body {
   font-size: clamp(28px, 9vw, 40px);
   letter-spacing: 0.18em;
   line-height: 1.1;
-  text-shadow: 0 0 18px var(--accent);
+  text-shadow: 0 0 18px var(--glow);
 }
 
 .title span {
@@ -181,7 +184,7 @@ body {
   font-size: 14px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  text-shadow: 0 0 12px var(--accent);
+  text-shadow: 0 0 12px var(--glow);
 }
 
 .btn {
@@ -294,7 +297,7 @@ body {
   width: 0%;
   background: var(--accent);
   border-radius: inherit;
-  box-shadow: 0 0 10px var(--accent);
+  box-shadow: 0 0 10px var(--glow);
   transition: width 0.15s linear;
 }
 
@@ -353,7 +356,7 @@ body {
 
 .menu-item.selected {
   color: var(--accent);
-  text-shadow: 0 0 14px var(--accent);
+  text-shadow: 0 0 14px var(--glow);
 }
 
 .menu-item.selected::before {
@@ -581,6 +584,80 @@ svg.zig-flick #zig-tongue { animation: zig-flick 0.5s ease; }
   svg.zig-flick #zig-tongue { animation: none; }
 }
 
+/* ---------- per-theme effects ---------- */
+/* Colours come from js/themes.js. This is only for the things a
+   palette can't express, keyed off the data-theme attribute that
+   applyTheme() writes onto <html>. */
+
+/* OLED: the board is the same pure black as the page, so the play area
+   would have no edge at all. A hairline of accent gives it back. */
+[data-theme='oled'] #game-canvas {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent),
+    0 0 26px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* Paper: the drop shadows are tuned for dark themes and read as dirt
+   on cream. --glow already turned the neon off (see themes.js). */
+[data-theme='paper'] #zig-bubble { box-shadow: 0 6px 18px rgb(0 0 0 / 0.12); }
+[data-theme='paper'] #game-canvas { box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.07); }
+
+/* Zig keeps his own green in every theme — he's a character, not
+   themed UI. That costs him his edges on the one light background, so
+   paper (and only paper) gives him a contact shadow plus a soft
+   ambient one to sit him on the page. drop-shadow follows the alpha
+   silhouette, which is why the background rect had to go. */
+[data-theme='paper'] #zig-wrap svg {
+  filter:
+    drop-shadow(0 2px 1px rgb(15 23 20 / 0.22))
+    drop-shadow(0 12px 24px rgb(15 23 20 / 0.20));
+}
+
+/* CRT: phosphor bloom. Deliberately on the canvas and not on .app —
+   a filter makes an element the containing block for fixed-position
+   descendants, and .app holds the fullscreen gate and intro overlays,
+   which would suddenly be clipped to the board. */
+[data-theme='crt'] #game-canvas {
+  filter: contrast(1.06) saturate(1.3) brightness(1.05);
+}
+
+/* Scanlines over everything, including Zig and the intro. Both layers
+   are fixed (so they escape the body grid) and click-through. */
+[data-theme='crt'] body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgb(0 0 0 / 0.32) 0 1px,
+    rgb(0 0 0 / 0) 1px 3px
+  );
+  animation: crt-flicker 5.5s steps(60) infinite;
+}
+
+/* Vignette. The big inset shadow on a rounded box is the trick that
+   sells "curved glass tube" — CSS can't actually bend the pixels. */
+[data-theme='crt'] body::after {
+  content: '';
+  position: fixed;
+  inset: -2px;
+  z-index: 99;
+  pointer-events: none;
+  border-radius: 28px;
+  box-shadow:
+    inset 0 0 120px 34px rgb(0 0 0 / 0.55),
+    inset 0 0 40px 6px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+@keyframes crt-flicker {
+  0%, 100% { opacity: 1; }
+  47% { opacity: 0.94; }
+  48% { opacity: 1; }
+  92% { opacity: 0.96; }
+}
+
 /* ---------- toast ---------- */
 
 .toast {
@@ -623,4 +700,6 @@ svg.zig-flick #zig-tongue { animation: zig-flick 0.5s ease; }
   .overlay--menu { animation: none; }
   .loading-fill { transition: none; }
   .gate-hint { animation: none; }
+  /* the scanlines stay, the flicker goes */
+  [data-theme='crt'] body::before { animation: none; }
 }

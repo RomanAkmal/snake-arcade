@@ -6,6 +6,16 @@
   <title>Snake Arcade — by Roman Akmal</title>
   <meta name="description" content="A polished browser snake game built with vanilla JS. By Roman Akmal.">
   <link rel="stylesheet" href="css/style.css">
+
+  <!-- The browser only discovers these after parsing main.js, which
+       costs a round trip per level of the import graph. Naming them
+       here starts every fetch at once. -->
+  <link rel="modulepreload" href="js/game.js">
+  <link rel="modulepreload" href="js/render.js">
+  <link rel="modulepreload" href="js/audio.js">
+  <link rel="modulepreload" href="js/ui.js">
+  <link rel="modulepreload" href="js/themes.js">
+  <link rel="modulepreload" href="js/storage.js">
 </head>
 <body>
   <main class="app">

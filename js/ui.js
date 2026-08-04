@@ -21,6 +21,7 @@ export class UI {
     this.toastTimer = 0;
 
     // Zig the mascot (built lazily by loadMascot)
+    this.mascotLoad = null; // in-flight fetch, so it only ever runs once
     this.zigLayer = null;
     this.zigWrap = null;
     this.zigSvg = null;
@@ -99,15 +100,25 @@ export class UI {
   // animated. On the way in we strip the editor background rect and
   // tag the animatable parts (eyes for blinking, tongue for flicking).
 
-  async loadMascot(url) {
-    if (this.zigLayer) return true;
+  // Kicked off at boot and awaited later by the welcome screen, so the
+  // fetch overlaps the gate/intro instead of stalling on a blank screen.
+  // The promise is cached: calling this twice must not build two Zigs.
+  loadMascot(url) {
+    if (this.zigLayer) return Promise.resolve(true);
+    this.mascotLoad ??= this.buildMascot(url);
+    return this.mascotLoad;
+  }
+
+  async buildMascot(url) {
     let svgText;
     try {
-      const res = await fetch(url);
+      // A local SVG that hasn't answered in 5s is never going to.
+      // Without this the welcome screen would wait on it forever.
+      const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
       if (!res.ok) return false;
       svgText = await res.text();
     } catch {
-      return false; // no mascot is better than a broken welcome
+      return false; // no mascot is better than a stuck welcome
     }
 
     const layer = document.createElement('div');
@@ -123,7 +134,11 @@ export class UI {
     const svg = layer.querySelector('svg');
     if (!svg) return false;
     svg.setAttribute('aria-hidden', 'true');
-    svg.querySelector('rect')?.remove(); // editor preview background
+    // Drawing tools re-add a full-bleed background rect on every export,
+    // and it would turn his drop-shadow into a rectangle. Only a rect
+    // that comes first counts as the background — Zig may legitimately
+    // gain rects in the artwork later.
+    if (svg.firstElementChild?.tagName === 'rect') svg.firstElementChild.remove();
 
     // Eyes: the whites + pupils + glints. The pupil fill is shared with
     // the nostril dot, so require a decent radius for dark circles.
@@ -254,6 +269,13 @@ export class UI {
     this.zigText.textContent = text;
   }
 
+  // Shown under the returning-player greeting: someone else picking up
+  // the keyboard needs a way out of a name that isn't theirs.
+  showBubbleNotYou() {
+    this.zigFormSlot.innerHTML =
+      `<button type="button" class="zig-skip" data-action="zig-rename">not you?</button>`;
+  }
+
   showBubbleNameForm(initialValue = '') {
     this.zigFormSlot.innerHTML = `
       <form id="zig-form" class="zig-form">
@@ -380,9 +402,11 @@ export class UI {
         <p>Made by <strong>Roman Akmal</strong></p>
         <a class="about-link" href="https://github.com/YOUR-GITHUB/snake-arcade"
            target="_blank" rel="noopener">View source on GitHub</a>
-        <p class="hint">Playing as <strong>${safeName}</strong></p>
+        <p class="hint">Playing as <strong>${safeName}</strong> &middot; saved in this
+           browser only</p>
         <div class="btn-row">
           <button class="btn btn--ghost" data-action="change-name">Change name</button>
+          <button class="btn btn--ghost" data-action="replay-intro">Replay intro</button>
           <button class="btn" data-action="menu-back">Back</button>
         </div>
       </div>`;

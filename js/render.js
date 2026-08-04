@@ -8,11 +8,59 @@ const REDUCED_MOTION = window.matchMedia(
   '(prefers-reduced-motion: reduce)'
 ).matches;
 
+// ---------- snake skins ----------
+// A skin changes how the snake is *drawn*, never what colour it is —
+// every one of these paints with the active theme's snake colours, so
+// all 4 skins work with all 6 themes. Order is the Customise order.
+export const SKINS = [
+  { id: 'solid', name: 'Solid' },
+  { id: 'gradient', name: 'Gradient' },
+  { id: 'neon', name: 'Neon' },
+  { id: 'pixel', name: 'Pixel' },
+];
+
+export const SKIN_IDS = SKINS.map((s) => s.id);
+
+// Colour maths for the gradient skin. Theme colours are authored as
+// hex; parsing is memoised because this runs per segment per frame.
+const rgbCache = new Map();
+
+function toRgb(hex) {
+  if (rgbCache.has(hex)) return rgbCache.get(hex);
+  let out = null;
+  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex ?? '');
+  if (m) {
+    const h = m[1].length === 3 ? [...m[1]].map((c) => c + c).join('') : m[1];
+    out = [
+      parseInt(h.slice(0, 2), 16),
+      parseInt(h.slice(2, 4), 16),
+      parseInt(h.slice(4, 6), 16),
+    ];
+  }
+  rgbCache.set(hex, out);
+  return out;
+}
+
+// Blend two theme colours. Anything that isn't plain hex (an rgba()
+// glow, say) falls back to `a` rather than painting garbage.
+function mix(a, b, amount) {
+  const ca = toRgb(a);
+  const cb = toRgb(b);
+  if (!ca || !cb) return a;
+  const f = Math.min(Math.max(amount, 0), 1);
+  return `rgb(${Math.round(ca[0] + (cb[0] - ca[0]) * f)},${Math.round(
+    ca[1] + (cb[1] - ca[1]) * f
+  )},${Math.round(ca[2] + (cb[2] - ca[2]) * f)})`;
+}
+
 export class Renderer {
-  constructor(canvas, theme) {
+  constructor(canvas, theme, skin = 'solid') {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.theme = theme;
+    // One renderer draws both the game snake and the idle menu snake,
+    // so setting this once covers both.
+    this.skin = SKIN_IDS.includes(skin) ? skin : 'solid';
 
     this.cell = 0;    // pixel size of one grid cell (device pixels)
     this.time = 0;    // running time for pulsing animations
@@ -27,6 +75,11 @@ export class Renderer {
 
   setTheme(theme) {
     this.theme = theme;
+  }
+
+  setSkin(id) {
+    this.skin = SKIN_IDS.includes(id) ? id : 'solid';
+    return this.skin;
   }
 
   resize() {
@@ -156,32 +209,147 @@ export class Renderer {
     ctx.restore();
   }
 
-  drawSnake(game, t) {
-    const { ctx, cell, theme } = this;
+  // Where each segment is *right now*, in canvas pixels (top-left of
+  // the cell). Every skin draws from this one list, so they all inherit
+  // the interpolation — and the wrap handling — for free.
+  //
+  // Each segment is lerped from where it was last step to where it is
+  // now: that's the whole trick behind the smooth movement. A wrap
+  // teleport jumps more than one cell, so those snap to the new side
+  // instead of sliding across the whole board.
+  snakePoints(game, t) {
+    const { cell } = this;
     const { snake, prevSnake } = game;
+    const pts = [];
+    for (let i = 0; i < snake.length; i++) {
+      const curr = snake[i];
+      const prev = prevSnake[i] ?? curr; // freshly-grown tail has no prev
+      const px = Math.abs(curr.x - prev.x) > 1 ? curr.x : prev.x;
+      const py = Math.abs(curr.y - prev.y) > 1 ? curr.y : prev.y;
+      pts.push({
+        x: (px + (curr.x - px) * t) * cell,
+        y: (py + (curr.y - py) * t) * cell,
+      });
+    }
+    return pts;
+  }
 
+  drawSnake(game, t) {
+    const pts = this.snakePoints(game, t);
+    if (!pts.length) return;
+
+    if (this.skin === 'gradient') this.drawSnakeGradient(pts);
+    else if (this.skin === 'neon') this.drawSnakeNeon(pts);
+    else if (this.skin === 'pixel') this.drawSnakePixel(pts);
+    else this.drawSnakeSolid(pts);
+
+    this.drawEyes(game, t);
+  }
+
+  // 1. solid — the original look: rounded segments, lighter head.
+  drawSnakeSolid(pts) {
+    const { ctx, cell, theme } = this;
     ctx.save();
     ctx.shadowColor = theme.snakeGlow;
     ctx.shadowBlur = cell * 0.55;
-
-    // Draw tail → head so the head sits on top.
-    // Each segment is lerped from where it was last step to where it is
-    // now — that's the whole trick behind the smooth movement.
-    for (let i = snake.length - 1; i >= 0; i--) {
-      const curr = snake[i];
-      const prev = prevSnake[i] ?? curr; // freshly-grown tail has no prev
-      // A wrap teleport jumps more than one cell — snap to the new side
-      // instead of sliding the segment across the whole board.
-      const px = Math.abs(curr.x - prev.x) > 1 ? curr.x : prev.x;
-      const py = Math.abs(curr.y - prev.y) > 1 ? curr.y : prev.y;
-      const x = (px + (curr.x - px) * t) * cell;
-      const y = (py + (curr.y - py) * t) * cell;
+    // tail → head, so the head sits on top
+    for (let i = pts.length - 1; i >= 0; i--) {
       ctx.fillStyle = i === 0 ? theme.snakeHead : theme.snake;
-      this.roundRect(x + cell * 0.06, y + cell * 0.06, cell * 0.88, cell * 0.88, cell * 0.28);
+      this.segment(pts[i]);
     }
     ctx.restore();
+  }
 
-    this.drawEyes(game, t);
+  // 2. gradient — head colour bleeding into body colour and then down
+  //    toward the board, so the tail reads as "further away".
+  drawSnakeGradient(pts) {
+    const { ctx, cell, theme } = this;
+    const last = Math.max(pts.length - 1, 1);
+    ctx.save();
+    ctx.shadowColor = theme.snakeGlow;
+    ctx.shadowBlur = cell * 0.45;
+    for (let i = pts.length - 1; i >= 0; i--) {
+      const f = i / last; // 0 at the head, 1 at the tail
+      const blend = mix(theme.snakeHead, theme.snake, f);
+      ctx.fillStyle = i === 0 ? theme.snakeHead : mix(blend, theme.board, f * 0.35);
+      this.segment(pts[i]);
+    }
+    ctx.restore();
+  }
+
+  // 3. neon — a glowing tube whose trail thins and fades out behind the
+  //    head. Drawn as links between segment centres rather than blocks,
+  //    which is what makes it read as one continuous streak.
+  drawSnakeNeon(pts) {
+    const { ctx, cell, theme } = this;
+    const n = pts.length;
+    const c = (p) => [p.x + cell / 2, p.y + cell / 2];
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = theme.snake;
+    ctx.shadowColor = theme.snakeGlow;
+
+    // tail → head so brighter links paint over dimmer ones
+    for (let i = n - 1; i > 0; i--) {
+      const [ax, ay] = c(pts[i]);
+      const [bx, by] = c(pts[i - 1]);
+      // Don't bridge a wrap: those two segments are on opposite edges
+      // and a link would draw a stripe straight across the board.
+      if (Math.abs(ax - bx) > cell * 1.5 || Math.abs(ay - by) > cell * 1.5) continue;
+      const f = 1 - i / n; // 0 at the tail, ~1 at the head
+      ctx.globalAlpha = 0.22 + 0.78 * f;
+      ctx.lineWidth = cell * (0.42 + 0.42 * f);
+      ctx.shadowBlur = cell * (0.3 + 1.1 * f);
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      ctx.stroke();
+    }
+
+    // bright head cap on top of the streak
+    const [hx, hy] = c(pts[0]);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = theme.snakeHead;
+    ctx.shadowBlur = cell * 1.5;
+    ctx.beginPath();
+    ctx.arc(hx, hy, cell * 0.42, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // 4. pixel — hard-edged blocks, no rounding, no glow. Coordinates are
+  //    snapped to whole device pixels so the edges stay crisp instead of
+  //    smearing across two pixels mid-slide.
+  drawSnakePixel(pts) {
+    const { ctx, cell, theme } = this;
+    const inset = Math.max(1, Math.round(cell * 0.04));
+    const size = Math.round(cell) - inset * 2;
+    ctx.save();
+    ctx.shadowBlur = 0;
+    for (let i = pts.length - 1; i >= 0; i--) {
+      ctx.fillStyle = i === 0 ? theme.snakeHead : theme.snake;
+      ctx.fillRect(
+        Math.round(pts[i].x) + inset,
+        Math.round(pts[i].y) + inset,
+        size,
+        size
+      );
+    }
+    ctx.restore();
+  }
+
+  // one rounded body block, inset slightly so segments read separately
+  segment(p) {
+    const { cell } = this;
+    this.roundRect(
+      p.x + cell * 0.06,
+      p.y + cell * 0.06,
+      cell * 0.88,
+      cell * 0.88,
+      cell * 0.28
+    );
   }
 
   drawEyes(game, t) {
@@ -196,12 +364,23 @@ export class Renderer {
     // Two dots offset perpendicular to the travel direction
     const px = -d.y, py = d.x;
     const fwd = cell * 0.18, side = cell * 0.16, r = cell * 0.07;
+    const square = this.skin === 'pixel'; // round eyes would break the grid
+    ctx.save();
+    ctx.shadowBlur = 0;
     ctx.fillStyle = this.theme.board;
     for (const s of [1, -1]) {
-      ctx.beginPath();
-      ctx.arc(hx + d.x * fwd + px * side * s, hy + d.y * fwd + py * side * s, r, 0, Math.PI * 2);
-      ctx.fill();
+      const ex = hx + d.x * fwd + px * side * s;
+      const ey = hy + d.y * fwd + py * side * s;
+      if (square) {
+        const w = Math.max(2, Math.round(r * 2));
+        ctx.fillRect(Math.round(ex - w / 2), Math.round(ey - w / 2), w, w);
+      } else {
+        ctx.beginPath();
+        ctx.arc(ex, ey, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
+    ctx.restore();
   }
 
   drawParticles(dtMs) {
