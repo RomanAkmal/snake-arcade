@@ -9,7 +9,6 @@ const STEP_START_MS = 160; // time per grid step at the start
 const STEP_MIN_MS = 70;    // fastest the game is allowed to get
 const STEP_RAMP_MS = 3;    // speed-up per food eaten
 
-const COMBO_WINDOW_MS = 3000; // eat again within this window to raise the combo
 const COMBO_MAX = 5;
 const POINTS_PER_FOOD = 10;
 
@@ -22,16 +21,35 @@ const DIRS = [
 
 export class Game {
   // Options beyond Classic (all default to Classic behaviour):
-  //   wrap      — walls teleport to the far side instead of killing
-  //               (Rush mode, and the menu AI's escape hatch)
-  //   maxLength — snake stops growing past this length (menu AI stays
-  //               short so it can't box itself in); 0 = grow forever
-  //   speedRamp — whether eating speeds the game up
-  constructor(mode = 'classic', { wrap = false, maxLength = 0, speedRamp = true } = {}) {
+  //   wrap          — walls teleport to the far side instead of killing
+  //   maxLength     — snake stops growing past this length (menu AI);
+  //                   0 = grow forever
+  //   speedRamp     — whether eating speeds the game up
+  //   foodCount     — how many foods are on the board at once (Rush: 2)
+  //   chainWindowMs — eat again within this window to raise the combo
+  //   chainDecays   — Rush: the multiplier falls back to ×1 when the
+  //                   window lapses (Classic just resets on next eat)
+  //   timeLimitMs   — Rush: game ends with a 'timeout' event; 0 = none
+  constructor(
+    mode = 'classic',
+    {
+      wrap = false,
+      maxLength = 0,
+      speedRamp = true,
+      foodCount = 1,
+      chainWindowMs = 3000,
+      chainDecays = false,
+      timeLimitMs = 0,
+    } = {}
+  ) {
     this.mode = mode;
     this.wrap = wrap;
     this.maxLength = maxLength;
     this.speedRamp = speedRamp;
+    this.foodCount = foodCount;
+    this.chainWindowMs = chainWindowMs;
+    this.chainDecays = chainDecays;
+    this.timeLimitMs = timeLimitMs;
     this.reset();
   }
 
@@ -56,11 +74,28 @@ export class Game {
 
     this.stepMs = STEP_START_MS;
     this.acc = 0;   // ms accumulated toward the next step
-    this.clock = 0; // total unpaused game time, used for the combo window
+    this.clock = 0; // total unpaused game time (combo window + countdown)
     this.alive = true;
 
-    this.food = null;
-    this.spawnFood();
+    this.foods = new Array(this.foodCount).fill(null);
+    for (let i = 0; i < this.foodCount; i++) this.spawnFood(i);
+  }
+
+  // Compatibility with single-food callers (menu AI, older code):
+  // "the food" is simply slot 0.
+  get food() {
+    return this.foods[0] ?? null;
+  }
+
+  set food(f) {
+    this.foods[0] = f;
+  }
+
+  // Countdown modes: ms remaining. Infinity when there's no limit.
+  get timeLeft() {
+    return this.timeLimitMs
+      ? Math.max(0, this.timeLimitMs - this.clock)
+      : Infinity;
   }
 
   // Queue a direction change. Up to two are buffered so quick corners
@@ -81,6 +116,26 @@ export class Game {
     const events = [];
     if (!this.alive) return events;
     this.clock += dtMs;
+
+    // countdown expired — end the run before stepping any further
+    if (this.timeLimitMs && this.clock >= this.timeLimitMs) {
+      this.clock = this.timeLimitMs;
+      this.alive = false;
+      events.push({ type: 'timeout', score: this.score });
+      return events;
+    }
+
+    // Rush: the chain multiplier decays back to ×1 when the window
+    // lapses (Classic keeps showing the old combo until the next eat)
+    if (
+      this.chainDecays &&
+      this.combo > 1 &&
+      this.clock - this.lastEatAt > this.chainWindowMs
+    ) {
+      this.combo = 1;
+      events.push({ type: 'chain-reset', combo: 1 });
+    }
+
     this.acc += dtMs;
     while (this.acc >= this.stepMs && this.alive) {
       this.acc -= this.stepMs;
@@ -108,7 +163,8 @@ export class Game {
       ny = (ny + GRID) % GRID;
     }
 
-    const ate = this.food && nx === this.food.x && ny === this.food.y;
+    const ateIdx = this.foods.findIndex((f) => f && nx === f.x && ny === f.y);
+    const ate = ateIdx !== -1;
 
     // Self collision — the tail cell is about to vacate, so it only
     // counts as a wall when we're growing this step.
@@ -120,9 +176,9 @@ export class Game {
     this.snake.unshift({ x: nx, y: ny });
 
     if (ate) {
-      // Combo: chained eats within the window multiply the points
+      // Chain: eats within the window multiply the points (capped ×5)
       this.combo =
-        this.clock - this.lastEatAt <= COMBO_WINDOW_MS
+        this.clock - this.lastEatAt <= this.chainWindowMs
           ? Math.min(this.combo + 1, COMBO_MAX)
           : 1;
       this.lastEatAt = this.clock;
@@ -140,7 +196,8 @@ export class Game {
         combo: this.combo,
         score: this.score,
       });
-      this.spawnFood();
+      this.foods[ateIdx] = null;
+      this.spawnFood(ateIdx); // only the eaten slot respawns
     } else {
       this.snake.pop();
     }
@@ -151,16 +208,20 @@ export class Game {
     events.push({ type: 'die', cause, score: this.score });
   }
 
-  spawnFood() {
-    // Collect every free cell, then pick one — never lands on the snake.
+  spawnFood(slot = 0) {
+    // Collect every free cell, then pick one — never lands on the
+    // snake or on any other food already on the board.
     const taken = new Set(this.snake.map((s) => `${s.x},${s.y}`));
+    this.foods.forEach((f, i) => {
+      if (f && i !== slot) taken.add(`${f.x},${f.y}`);
+    });
     const free = [];
     for (let y = 0; y < GRID; y++) {
       for (let x = 0; x < GRID; x++) {
         if (!taken.has(`${x},${y}`)) free.push({ x, y });
       }
     }
-    this.food = free.length
+    this.foods[slot] = free.length
       ? free[Math.floor(Math.random() * free.length)]
       : null; // board full — you win snake, basically
   }

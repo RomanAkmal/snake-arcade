@@ -177,7 +177,25 @@ before. Returning players go gate → key → Zig hello (also scored
 now). Do not remove the gate without solving the autoplay catch-22
 some other way.
 
+Phase 4 done: Rush mode, wired to Play Rush. Game gained generic
+options (foodCount, chainWindowMs, chainDecays, timeLimitMs) —
+Classic uses the defaults and is verified byte-identical in behavior.
+Rush = wrap walls (self-collision still kills), 2 foods (spawn never
+overlaps snake or each other; only the eaten slot respawns), chain
+×1→×5 within 2.5s that DECAYS to ×1 on lapse ('chain-reset' event;
+Classic keeps its no-decay combo), 60s countdown ('timeout' event →
+softer game over with timeUp gong, no death flash). game.foods is the
+array; game.food stays as a slot-0 getter/setter for the AI + old
+code. Final 10s: timer enlarges red (#timer-box.urgent), board edges
+pulse red (renderer edgePulse option), per-second timeTick rises in
+pitch. Bests per mode via existing best:{mode} keys; HUD best +
+Play Again/Enter follow the current mode (main's `game` is now
+re-created per run — debug hook exposes it via a live getter).
+Verified: wrap at all 4 edges, chain cap/decay windows, dual-food
+invariants over 200 eats, timeout end state, per-mode best isolation,
+full menu→rush→timeout→replay→classic flow, Classic regression.
+
 remove \_\_snakeDebug before final deploy"
 
-Next: Phase 4 — Rush mode (wrap + 2 foods + chain multiplier +
-60s countdown)
+Next: Phase 5 — Customise (6 themes + 4 skins, live preview,
+persisted via storage.js)

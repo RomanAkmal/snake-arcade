@@ -20,10 +20,23 @@ applyTheme(theme);
 const canvas = document.getElementById('game-canvas');
 const stage = document.getElementById('stage');
 
-const game = new Game('classic');
+// Recreated per run by startGame() — 'classic' or 'rush'
+let game = new Game('classic');
 // The menu's idle snake: wraps instead of dying, stays short so it
 // can't box itself in, and never speeds up.
 const aiGame = new Game('menu', { wrap: true, maxLength: 9, speedRamp: false });
+
+// Rush mode: 60s countdown, wrapping walls, two foods, and a chain
+// multiplier that decays when the 2.5s window lapses
+const RUSH_OPTS = {
+  wrap: true,
+  foodCount: 2,
+  chainWindowMs: 2500,
+  chainDecays: true,
+  timeLimitMs: 60_000,
+};
+const RUSH_URGENT_MS = 10_000; // final stretch: red edges, big timer, ticks
+let lastTickSec = 0;           // dedupes the once-per-second countdown tick
 const renderer = new Renderer(canvas, theme);
 const fx = new Fx(document.getElementById('fx-canvas'));
 const audio = new AudioEngine();
@@ -329,9 +342,16 @@ function startGame(mode) {
   intro = null; // safety: never keep the logo fading over a game
   fx.clear();
   ui.hideZig();
-  game.reset(); // mode is always 'classic' until Rush lands
+  game = mode === 'rush' ? new Game('rush', RUSH_OPTS) : new Game('classic');
   ui.setScore(0);
   ui.setCombo(1);
+  ui.setBest(getBestScore(mode));
+  ui.setTimerVisible(mode === 'rush');
+  if (mode === 'rush') {
+    ui.setTimer(60);
+    ui.setTimerUrgent(false);
+    lastTickSec = 0;
+  }
   ui.hideOverlay();
   ui.setHudVisible(true);
   ui.setPauseVisible(true);
@@ -363,13 +383,13 @@ function setMenuIndex(i) {
 
 function selectMenuItem(id) {
   audio.click();
-  if (id === 'classic') {
-    startGame('classic');
+  if (id === 'classic' || id === 'rush') {
+    startGame(id);
   } else if (id === 'about') {
     aboutOpen = true;
     ui.showAbout(getPlayerName() || 'Chief');
   } else {
-    // rush / customise / leaderboard — later phases
+    // customise / leaderboard — later phases
     ui.toast('Coming soon ✨');
   }
 }
@@ -402,6 +422,14 @@ function handleGameEvent(e) {
     ui.setCombo(e.combo);
     renderer.onEat(e.x, e.y);
     audio.eat(e.combo);
+  } else if (e.type === 'chain-reset') {
+    ui.setCombo(1); // Rush: multiplier lapsed back to ×1
+  } else if (e.type === 'timeout') {
+    // Rush clock ran out — softer ending than a death
+    gameState = 'dying';
+    ui.setPauseVisible(false);
+    audio.timeUp();
+    setTimeout(() => enterGameOver(e.score), 500);
   } else if (e.type === 'die') {
     gameState = 'dying';
     ui.setPauseVisible(false);
@@ -437,7 +465,7 @@ ui.onAction((action) => {
   } else if (action === 'zig-poke') {
     pokeZig();
   } else if (action === 'play-again') {
-    startGame('classic');
+    startGame(game.mode); // restart whichever mode just ended
   } else if (action === 'goto-menu') {
     audio.click();
     enterMenu();
@@ -556,6 +584,18 @@ function update(dt) {
     }
   } else if (screen === SCREEN.GAME && gameState === 'playing') {
     for (const e of game.advance(dt)) handleGameEvent(e);
+
+    // Rush countdown HUD + final-stretch ticks
+    if (game.mode === 'rush' && gameState === 'playing') {
+      const sec = Math.ceil(game.timeLeft / 1000);
+      ui.setTimer(sec);
+      const urgent = game.timeLeft <= RUSH_URGENT_MS;
+      ui.setTimerUrgent(urgent);
+      if (urgent && sec !== lastTickSec && sec > 0) {
+        lastTickSec = sec;
+        audio.timeTick(10 - sec); // pitch climbs as time runs out
+      }
+    }
   }
 }
 
@@ -571,7 +611,13 @@ function frame(now) {
   if (screen === SCREEN.INTRO || screen === SCREEN.MENU || screen === SCREEN.WELCOME) {
     renderer.draw(aiGame, dt, { dim: true });
   } else {
-    renderer.draw(game, dt);
+    const edgePulse =
+      screen === SCREEN.GAME &&
+      game.mode === 'rush' &&
+      game.timeLeft <= RUSH_URGENT_MS
+        ? 1
+        : 0;
+    renderer.draw(game, dt, { edgePulse });
   }
   // Fullscreen fx layer: the intro owns it while it exists (opaque
   // during INTRO, fading out over menu/welcome afterwards); otherwise
@@ -666,7 +712,7 @@ window.addEventListener('keydown', (e) => {
   if (screen === SCREEN.GAMEOVER) {
     if (key === 'enter' || key === ' ') {
       e.preventDefault();
-      startGame('classic');
+      startGame(game.mode); // replay the same mode
     } else if (key === 'escape') {
       e.preventDefault();
       enterMenu();
@@ -745,13 +791,16 @@ requestAnimationFrame(frame);
 // Dev hook for console debugging and the phase logic checks.
 // TODO: remove before final deploy (noted in CLAUDE.md).
 window.__snakeDebug = {
-  game,
+  get game() {
+    return game; // live getter — startGame() replaces the instance
+  },
   aiGame,
   renderer,
   fx,
   ui,
   update,
   enterIntro,
+  startGame,
   get intro() {
     return intro;
   },

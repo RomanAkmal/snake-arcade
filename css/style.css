@@ -82,6 +82,17 @@ body {
   to   { transform: scale(1); }
 }
 
+/* Rush countdown: grows and turns red for the final seconds */
+#timer-box { text-align: center; }
+#timer-box .hud-value {
+  transition: font-size 0.25s ease, color 0.25s ease;
+}
+#timer-box.urgent .hud-value {
+  color: var(--danger);
+  font-size: clamp(30px, 4.2vh, 42px);
+  text-shadow: 0 0 14px var(--danger);
+}
+
 .pause-btn {
   background: var(--panel);
   color: var(--text);

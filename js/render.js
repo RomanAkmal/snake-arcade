@@ -65,7 +65,7 @@ export class Renderer {
 
   // ----- per-frame drawing -----
 
-  draw(game, dtMs, { dim = false } = {}) {
+  draw(game, dtMs, { dim = false, edgePulse = 0 } = {}) {
     this.time += dtMs;
     const { ctx, cell, theme } = this;
     const size = cell * GRID;
@@ -84,9 +84,29 @@ export class Renderer {
     }
 
     this.drawBoard(size);
-    if (game.food) this.drawFood(game.food);
+    for (const f of game.foods) {
+      if (f) this.drawFood(f);
+    }
     this.drawSnake(game, t);
     this.drawParticles(dtMs);
+
+    // Rush final seconds: the board edges pulse red
+    if (edgePulse > 0) {
+      const a = edgePulse * (0.3 + 0.25 * Math.sin(this.time / 140));
+      ctx.save();
+      ctx.globalAlpha = Math.max(a, 0);
+      ctx.strokeStyle = theme.danger;
+      ctx.lineWidth = cell * 0.45;
+      ctx.shadowColor = theme.danger;
+      ctx.shadowBlur = cell * 1.2;
+      ctx.strokeRect(
+        ctx.lineWidth / 2,
+        ctx.lineWidth / 2,
+        size - ctx.lineWidth,
+        size - ctx.lineWidth
+      );
+      ctx.restore();
+    }
 
     // Red flash over everything, fading out after death
     if (this.flash > 0) {

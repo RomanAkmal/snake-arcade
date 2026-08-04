@@ -251,6 +251,20 @@ export class AudioEngine {
     osc.stop(t + 0.06);
   }
 
+  // Rush countdown tick — pitch rises as the clock runs out
+  timeTick(urgency = 0) {
+    if (!this.ready()) return;
+    this.note(640 + urgency * 55, this.ctx.currentTime, 0.07, 'square', 0.09);
+  }
+
+  // Rush time-up gong: two descending notes, softer than a death
+  timeUp() {
+    if (!this.ready()) return;
+    const t = this.ctx.currentTime;
+    this.note(660, t, 0.35, 'triangle', 0.16);
+    this.note(440, t + 0.2, 0.55, 'triangle', 0.14);
+  }
+
   // Soft click for UI actions (select, pause, resume)
   click() {
     if (!this.ready()) return;

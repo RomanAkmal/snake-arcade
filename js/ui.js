@@ -13,6 +13,8 @@ export class UI {
     this.overlayEl = document.getElementById('overlay');
     this.stageEl = document.getElementById('stage');
     this.pauseBtn = document.getElementById('pause-btn');
+    this.timerBox = document.getElementById('timer-box');
+    this.timerEl = document.getElementById('timer');
 
     this.actionHandler = null;
     this.toastEl = null;
@@ -76,6 +78,20 @@ export class UI {
 
   setPauseVisible(visible) {
     this.pauseBtn.hidden = !visible;
+  }
+
+  // ----- Rush countdown -----
+
+  setTimerVisible(visible) {
+    this.timerBox.hidden = !visible;
+  }
+
+  setTimer(seconds) {
+    this.timerEl.textContent = seconds;
+  }
+
+  setTimerUrgent(urgent) {
+    this.timerBox.classList.toggle('urgent', urgent);
   }
 
   // ----- Zig the mascot -----
