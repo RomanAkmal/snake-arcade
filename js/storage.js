@@ -68,6 +68,27 @@ export function setMusicTrack(id) {
   setItem('music', id);
 }
 
+// Completed games (runs that reached game over, not quits-to-menu).
+// Drives the one-time creator moment after the third game.
+export function getGamesCompleted() {
+  return Number(getItem('gamesCompleted', 0)) || 0;
+}
+
+export function incrementGamesCompleted() {
+  const n = getGamesCompleted() + 1;
+  setItem('gamesCompleted', n);
+  return n;
+}
+
+// The creator moment fires once ever per device; this is the latch.
+export function getCreatorMomentShown() {
+  return getItem('creatorShown', false) === true;
+}
+
+export function setCreatorMomentShown() {
+  setItem('creatorShown', true);
+}
+
 // Sound effects on/off. Independent of the music track and of volume.
 export function getSfxOn() {
   return getItem('sfx', true) !== false;

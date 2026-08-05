@@ -7,6 +7,12 @@
 // several overlapping sounds from clipping at volume 100.
 const MASTER_HEADROOM = 0.4;
 
+// Music bus level relative to SFX. The tracks were originally mixed so
+// low (peak ~0.017 after headroom) that they were inaudible on laptop
+// speakers, which also made the volume slider look broken: there was
+// nothing playing loud enough to hear it move.
+const MUSIC_BALANCE = 1.35;
+
 // ---------- background music ----------
 // Three loops, all synthesized. Each is a step sequence of semitone
 // offsets from `root` (null = a rest), played by one shared scheduler,
@@ -20,10 +26,10 @@ const MUSIC = {
     notes: [0, 3, 7, 10, 12, 10, 7, 3],
     root: 220,
     type: 'triangle',
-    vol: 0.06,
+    vol: 0.15,
     dur: 0.55,
     bassEvery: 8, // one low root per bar
-    bassVol: 0.05,
+    bassVol: 0.12,
   },
   arcade: {
     name: 'Arcade',
@@ -37,10 +43,10 @@ const MUSIC = {
     ],
     root: 262,
     type: 'square',
-    vol: 0.03,
+    vol: 0.09,
     dur: 0.1, // short and clipped — that's the chiptune character
     bassEvery: 4,
-    bassVol: 0.055,
+    bassVol: 0.14,
   },
   focus: {
     name: 'Focus',
@@ -49,7 +55,9 @@ const MUSIC = {
     notes: [0, null, 5, null],
     root: 110,
     type: 'sine',
-    vol: 0.09,
+    // the ceiling for any voice here: above ~0.16 a sustained pad
+    // starts competing with the eat blip instead of sitting under it
+    vol: 0.16,
     dur: 0.95,
     bassEvery: 0,
     bassVol: 0,
@@ -100,7 +108,10 @@ export class AudioEngine {
       // the SFX toggle silence blips without touching the track, and
       // the volume slider still governs both from above.
       this.musicGain = this.ctx.createGain();
-      this.musicGain.gain.value = 1;
+      // Music sits deliberately under the SFX: loud enough to be
+      // clearly present under gameplay, quiet enough that an eat blip
+      // (0.25) still cuts through a track note (0.15 x this).
+      this.musicGain.gain.value = MUSIC_BALANCE;
       this.musicGain.connect(this.master);
       this.sfxGain = this.ctx.createGain();
       this.sfxGain.gain.value = this.sfxOn ? 1 : 0;

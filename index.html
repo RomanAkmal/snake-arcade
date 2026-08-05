@@ -3,8 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Snake Arcade — by Roman Akmal</title>
+  <title>Snake Arcade | Roman Akmal</title>
   <meta name="description" content="A polished browser snake game built with vanilla JS. By Roman Akmal.">
+
+  <!-- Zig's head, cropped from assets/mascot.svg and inlined as a data
+       URI so the tab icon costs no extra request and no new file. The
+       '#' of every colour must be percent-encoded or the data URI ends
+       at the first one. -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='96%2078%20140%20120'%3E%3Cellipse%20cx='158'%20cy='138'%20rx='56'%20ry='50'%20fill='%234ade80'/%3E%3Cellipse%20cx='202'%20cy='156'%20rx='30'%20ry='21'%20fill='%234ade80'/%3E%3Cellipse%20cx='204'%20cy='164'%20rx='25'%20ry='12'%20fill='%23bbf7d0'/%3E%3Cpath%20d='M%20120%20100%20q%2014%20-10%2030%20-4'%20fill='none'%20stroke='%2322c55e'%20stroke-width='7'%20stroke-linecap='round'/%3E%3Cpath%20d='M%20165%2096%20q%2014%20-8%2028%20-1'%20fill='none'%20stroke='%2322c55e'%20stroke-width='7'%20stroke-linecap='round'/%3E%3Ccircle%20cx='138'%20cy='122'%20r='19'%20fill='%23ffffff'/%3E%3Ccircle%20cx='180'%20cy='120'%20r='19'%20fill='%23ffffff'/%3E%3Ccircle%20cx='144'%20cy='125'%20r='8.5'%20fill='%2314532d'/%3E%3Ccircle%20cx='186'%20cy='123'%20r='8.5'%20fill='%2314532d'/%3E%3Ccircle%20cx='147'%20cy='122'%20r='2.8'%20fill='%23ffffff'/%3E%3Ccircle%20cx='189'%20cy='120'%20r='2.8'%20fill='%23ffffff'/%3E%3Cpath%20d='M%20170%20172%20Q%20192%20182%20212%20172'%20fill='none'%20stroke='%2314532d'%20stroke-width='4'%20stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="apple-touch-icon" href="assets/mascot.svg">
+
   <link rel="stylesheet" href="css/style.css">
 
   <!-- The browser only discovers these after parsing main.js, which
@@ -43,6 +51,12 @@
 
     <footer class="footer">
       <span>snake-arcade · Roman Akmal</span>
+      <a class="footer-star" href="https://github.com/RomanAkmal/snake-arcade"
+         target="_blank" rel="noopener" aria-label="Star snake-arcade on GitHub">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
+          <path d="M12 2l2.9 6.26 6.6.7-4.95 4.5 1.4 6.54L12 16.77 6.05 20l1.4-6.54L2.5 8.96l6.6-.7z"/>
+        </svg>
+      </a>
     </footer>
   </main>
 

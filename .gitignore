@@ -1,2 +1,5 @@
 # Supabase keys — commit js/config.example.js instead
 js/config.js
+
+.vercel
+.env*

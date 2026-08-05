@@ -85,7 +85,11 @@ body {
   to   { transform: scale(1); }
 }
 
-/* Rush countdown: grows and turns red for the final seconds */
+/* Rush countdown: grows and turns red for the final seconds.
+   The [hidden] rule is load-bearing: .hud-item sets display:flex, which
+   outranks the browser's [hidden] { display: none }, so without this
+   the Rush timer stays on screen during a Classic run. */
+#timer-box[hidden] { display: none; }
 #timer-box { text-align: center; }
 #timer-box .hud-value {
   transition: font-size 0.25s ease, color 0.25s ease;
@@ -115,6 +119,11 @@ body {
   /* the game handles all touch gestures itself */
   touch-action: none;
 }
+
+/* ...but overlays are menus, not a board: they need normal touch
+   behaviour or their sliders can't be dragged and their panels can't
+   be scrolled. touch-action inherits, so this has to be re-enabled. */
+.overlay { touch-action: auto; }
 
 #game-canvas {
   display: block;
@@ -365,16 +374,107 @@ body {
   left: 8px;
 }
 
-/* ---------- about panel ---------- */
+/* ---------- about: the cabinet card ---------- */
 
-.about p {
+.about-card { width: min(420px, 100%); gap: 12px; }
+
+/* Small Zig, cloned from the mascot; the zig-idle bob/nod/pupil
+   animations are class-driven CSS, so the clone idles for free. */
+.about-zig {
+  width: clamp(76px, 22vw, 112px);
+  aspect-ratio: 1;
+}
+.about-zig svg { display: block; width: 100%; height: 100%; }
+
+.about-title {
   margin: 0;
-  max-width: 34ch;
-  font-size: 14px;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 22px;
+  letter-spacing: 0.14em;
+  text-shadow: 0 0 14px var(--glow);
+}
+
+.about-story {
+  margin: 0;
+  max-width: 36ch;
+  font-size: 13.5px;
   line-height: 1.55;
 }
 
-.about-link { color: var(--accent); }
+/* The three outbound links, dressed like the arcade menu: mono type,
+   generous tap targets, accent glow on hover. */
+.about-links {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 300px;
+}
+
+.about-link-btn {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid color-mix(in srgb, var(--muted) 35%, transparent);
+  border-radius: 10px;
+  color: var(--text);
+  text-decoration: none;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 14px;
+  letter-spacing: 0.05em;
+}
+
+.about-link-btn svg { width: 16px; height: 16px; flex: none; }
+
+.about-link-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  text-shadow: 0 0 12px var(--glow);
+}
+
+.about-me {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+/* The spec plate: reads like the label riveted to a cabinet's back,
+   not a CV line. */
+.spec-plate {
+  margin: 2px 0 0;
+  padding: 7px 14px;
+  border: 1px solid color-mix(in srgb, var(--muted) 40%, transparent);
+  border-radius: 6px;
+  color: var(--muted);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* ---------- creator moment: buttons in Zig's bubble ---------- */
+
+.bubble-links {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.bubble-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.bubble-btn svg { width: 15px; height: 15px; flex: none; }
 
 /* ---------- customise screen ---------- */
 
@@ -790,6 +890,173 @@ svg.zig-flick #zig-tongue { animation: zig-flick 0.5s ease; }
   svg.zig-flick #zig-tongue { animation: none; }
 }
 
+/* ---------- panel back button ---------- */
+
+/* Pinned top-left of the panel and always on screen. 44px min is the
+   smallest reliable touch target, and this is the only way out of a
+   full-screen panel on a phone. */
+.back-btn {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  min-width: 44px;
+  margin: -4px 0 -4px -6px;
+  padding: 10px 14px 10px 10px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--muted) 35%, transparent);
+  border-radius: 10px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.back-btn:hover { border-color: var(--accent); color: var(--accent); }
+.back-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- leaderboard ---------- */
+
+.leaderboard { width: min(420px, 100%); gap: 12px; }
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  width: 100%;
+  padding: 3px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--muted) 16%, transparent);
+}
+
+.tabs--sub { background: none; padding: 0; }
+
+.tab {
+  flex: 1;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  padding: 8px 6px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tab.selected { background: var(--accent); color: var(--bg); font-weight: 700; }
+.tabs--sub .tab.selected {
+  background: none;
+  color: var(--accent);
+  text-shadow: 0 0 12px var(--glow);
+  border-bottom: 2px solid var(--accent);
+  border-radius: 0;
+}
+
+/* Fixed height so switching tabs or hitting a loading state doesn't
+   make the whole panel jump around. */
+.lb-body {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 260px;
+}
+
+.lb-note { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+
+.lb-list {
+  list-style: none;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  align-self: start;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+/* The name column is the flexible one and everything else is sized to
+   its content, so a 12-character name shrinks the gap rather than
+   pushing the score off the edge at 380px. */
+.lb-row {
+  display: grid;
+  grid-template-columns: 2.4em minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 7px 8px;
+  border-radius: 6px;
+}
+
+.lb-row:nth-child(odd) {
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+}
+
+.lb-row.is-you {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.lb-rank { color: var(--muted); font-size: 13px; }
+
+/* 12 characters is the cap, but a narrow screen can still run out of
+   room; ellipsis beats wrapping a row to two lines. */
+.lb-name {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lb-score { font-variant-numeric: tabular-nums; font-weight: 700; }
+
+/* first place stands out without needing a medal graphic */
+.lb-row:nth-child(1) .lb-rank,
+.lb-row:nth-child(1) .lb-name,
+.lb-row:nth-child(1) .lb-score {
+  color: var(--accent);
+  text-shadow: 0 0 10px var(--glow);
+}
+
+/* ---------- leaderboard name entry ---------- */
+
+.initials { gap: 10px; }
+
+.name-form {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+/* Arcade-styled but a real text field: centred, monospace, wide enough
+   for the full 12 characters without the caret ever leaving view. */
+.name-input {
+  width: min(300px, 100%);
+  background: var(--bg);
+  border: none;
+  border-bottom: 3px solid color-mix(in srgb, var(--muted) 45%, transparent);
+  border-radius: 8px 8px 0 0;
+  color: var(--accent);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: clamp(24px, 7vw, 34px);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-align: center;
+  padding: 10px 12px;
+  text-shadow: 0 0 16px var(--glow);
+}
+
+.name-input:focus {
+  outline: none;
+  border-bottom-color: var(--accent);
+}
+
+.name-note { margin: 0; color: var(--muted); font-size: 12.5px; }
+.name-note.is-error { color: var(--danger); }
+
 /* ---------- per-theme effects ---------- */
 /* Colours come from js/themes.js. This is only for the things a
    palette can't express, keyed off the data-theme attribute that
@@ -892,10 +1159,24 @@ svg.zig-flick #zig-tongue { animation: zig-flick 0.5s ease; }
 /* ---------- Footer ---------- */
 
 .footer {
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   font-size: 12px;
   color: var(--muted);
 }
+
+/* Quiet GitHub star: visible, never shouting. Padding brings the tiny
+   glyph up to a usable tap target. */
+.footer-star {
+  display: inline-flex;
+  padding: 6px;
+  color: var(--muted);
+  border-radius: 6px;
+}
+.footer-star:hover { color: var(--accent); }
+.footer-star:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* ---------- Reduced motion ---------- */
 

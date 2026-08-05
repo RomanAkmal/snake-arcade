@@ -3,6 +3,14 @@
 // report back through a single onAction callback (set by main.js)
 // instead of the UI knowing anything about game state.
 
+// Tiny inline icons for the About links and Zig's bubble. Inline so
+// they cost no requests and take the current text colour.
+const ICONS = {
+  globe: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14 0 18M12 3c-3 3.5-3 14 0 18"/></svg>`,
+  star: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.9 6.26 6.6.7-4.95 4.5 1.4 6.54L12 16.77 6.05 20l1.4-6.54L2.5 8.96l6.6-.7z"/></svg>`,
+  linkedin: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="3" y="9" width="4" height="12"/><circle cx="5" cy="5" r="2"/><path d="M10 9h4v2c.6-1.2 2-2.3 4-2.3 3 0 4 1.8 4 5V21h-4v-6c0-1.6-.6-2.6-2-2.6s-2 1-2 2.6v6h-4z"/></svg>`,
+};
+
 export class UI {
   constructor() {
     this.hudEl = document.querySelector('.hud');
@@ -321,6 +329,22 @@ export class UI {
     input.focus();
   }
 
+  // The creator moment's calls to action, shown in Zig's bubble once
+  // his message has finished typing. Real anchors (new tab, noopener);
+  // the data-action lets main.js also dismiss back to the menu.
+  showCreatorLinks({ github, portfolio }) {
+    this.zigFormSlot.innerHTML = `
+      <div class="bubble-links">
+        <a class="btn bubble-btn" href="${github}"
+           target="_blank" rel="noopener" data-action="creator-link">
+          ${ICONS.star}<span>Star on GitHub</span></a>
+        <a class="btn btn--ghost bubble-btn" href="${portfolio}"
+           target="_blank" rel="noopener" data-action="creator-link">
+          ${ICONS.globe}<span>Visit portfolio</span></a>
+      </div>
+      <button type="button" class="zig-skip" data-action="zig-skip">keep playing</button>`;
+  }
+
   getZigName() {
     const input = document.getElementById('zig-input');
     return input
@@ -419,6 +443,7 @@ export class UI {
     this.overlayEl.className = 'overlay overlay--customise';
     this.overlayEl.innerHTML = `
       <div class="panel panel--scroll customise">
+        ${this.backButton()}
         <h2>Customise</h2>
         <div class="preview"><canvas id="preview-canvas"></canvas></div>
 
@@ -482,36 +507,186 @@ export class UI {
       });
   }
 
-  showAbout({ name }) {
-    // name is restricted to [a-zA-Z0-9 ] at input time, but escape
-    // anyway — it comes back from localStorage
-    const safeName = String(name ?? '')
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    this.overlayEl.className = 'overlay overlay--menu';
+  // The About screen is a "cabinet card": Zig up top, the one-line
+  // story, the three outbound links, then the housekeeping. Its job is
+  // to point people at Roman without reading like an ad.
+  showAbout({ name, links }) {
+    const safeName = this.escape(name); // comes back from localStorage
+    this.overlayEl.className = 'overlay overlay--customise';
     this.overlayEl.innerHTML = `
-      <div class="panel about">
-        <h2>About</h2>
-        <p>A polished little snake game built from scratch with vanilla
-           JavaScript, canvas and WebAudio &mdash; no frameworks, no build
-           tools, no assets.</p>
-        <p>Made by <strong>Roman Akmal</strong></p>
-        <a class="about-link" href="https://github.com/YOUR-GITHUB/snake-arcade"
-           target="_blank" rel="noopener">View source on GitHub</a>
-        <p class="hint">Playing as <strong>${safeName}</strong> &middot; saved in this
-           browser only</p>
-        <div class="btn-row">
-          <button class="btn btn--ghost" data-action="change-name">Change name</button>
-          <button class="btn btn--ghost" data-action="replay-intro">Replay intro</button>
-          <button class="btn" data-action="menu-back">Back</button>
+      <div class="panel panel--scroll about-card">
+        ${this.backButton()}
+        <div class="about-zig" id="about-zig" aria-hidden="true"></div>
+        <h2 class="about-title">Snake Arcade</h2>
+        <p class="about-story">Built from scratch in vanilla JavaScript by
+           <strong>Roman Akmal</strong>. No frameworks, no dependencies,
+           every sound synthesized in code.</p>
+        <nav class="about-links">
+          <a class="about-link-btn" href="${links.portfolio}"
+             target="_blank" rel="noopener">${ICONS.globe}<span>Portfolio</span></a>
+          <a class="about-link-btn" href="${links.github}"
+             target="_blank" rel="noopener">${ICONS.star}<span>Star on GitHub</span></a>
+          <a class="about-link-btn" href="${links.linkedin}"
+             target="_blank" rel="noopener">${ICONS.linkedin}<span>LinkedIn</span></a>
+        </nav>
+        <div class="about-me">
+          <p class="hint">Playing as <strong>${safeName}</strong> &middot; saved in this
+             browser only</p>
+          <div class="btn-row">
+            <button class="btn btn--ghost" data-action="change-name">Change name</button>
+            <button class="btn btn--ghost" data-action="replay-intro">Replay intro</button>
+          </div>
         </div>
+        <p class="spec-plate">Vanilla JS &middot; Canvas &middot; WebAudio &middot;
+           Vercel serverless &middot; Redis</p>
       </div>`;
     this.overlayEl.hidden = false;
+    this.mountMiniZig();
+  }
+
+  // A small idling Zig for the About card, cloned from the mascot SVG
+  // already fetched at boot. The clone keeps its ids: they're
+  // duplicates of the hidden welcome-screen Zig, which is invalid HTML
+  // but exactly what we want here, because the id-based CSS
+  // (#zig-tongue hidden at rest, #zig-head nodding under .zig-idle)
+  // applies to both copies. Stripping the ids would leave the clone's
+  // tongue permanently out.
+  mountMiniZig() {
+    const slot = document.getElementById('about-zig');
+    if (!slot || !this.zigSvg) return; // mascot fetch may have failed
+    const clone = this.zigSvg.cloneNode(true);
+    clone.removeAttribute('class');
+    clone.classList.add('zig-idle', 'zig-mini');
+    slot.appendChild(clone);
   }
 
   // Live number beside the slider while dragging
   setVolumeLabel(v) {
     const el = document.getElementById('vol-val');
     if (el) el.textContent = v;
+  }
+
+  // ----- leaderboard -----
+  // state: 'loading' | 'ready' | 'empty' | 'offline'. Kept as one
+  // function so the tabs never disappear while a fetch is in flight —
+  // the player can still switch tabs mid-load.
+  showLeaderboard({ period, mode, state, scores = [], highlight = null }) {
+    const tab = (action, id, label, current) =>
+      `<button class="tab${id === current ? ' selected' : ''}"
+               data-action="${action}:${id}">${label}</button>`;
+
+    let bodyHtml;
+    if (state === 'loading') {
+      bodyHtml = `<p class="lb-note">Loading&hellip;</p>`;
+    } else if (state === 'offline') {
+      bodyHtml = `<p class="lb-note">Leaderboard unavailable.<br>
+                  <span class="hint">Your scores are still saved on this device.</span></p>`;
+    } else if (!scores.length) {
+      bodyHtml = `<p class="lb-note">No scores yet.<br>
+                  <span class="hint">Be the first! 🐍</span></p>`;
+    } else {
+      bodyHtml = `
+        <ol class="lb-list">
+          ${scores
+            .map(
+              (s, i) => `
+            <li class="lb-row${highlight !== null && i === highlight ? ' is-you' : ''}">
+              <span class="lb-rank">${String(i + 1).padStart(2, '0')}</span>
+              <span class="lb-name" title="${this.escape(s.name)}">${this.escape(s.name)}</span>
+              <span class="lb-score">${Number(s.score).toLocaleString()}</span>
+            </li>`
+            )
+            .join('')}
+        </ol>`;
+    }
+
+    this.overlayEl.className = 'overlay overlay--customise';
+    this.overlayEl.innerHTML = `
+      <div class="panel panel--scroll leaderboard">
+        ${this.backButton()}
+        <h2>Leaderboard</h2>
+        <div class="tabs">
+          ${tab('lb-period', 'all', 'All-time', period)}
+          ${tab('lb-period', 'week', 'This Week', period)}
+        </div>
+        <div class="tabs tabs--sub">
+          ${tab('lb-mode', 'classic', 'Classic', mode)}
+          ${tab('lb-mode', 'rush', 'Rush', mode)}
+        </div>
+        <div class="lb-body">${bodyHtml}</div>
+        <button class="btn" data-action="menu-back">Back</button>
+        <p class="hint">Esc returns to the menu</p>
+      </div>`;
+    this.overlayEl.hidden = false;
+  }
+
+  // ----- name confirmation -----
+  // Prefilled with the name the player already gave Zig, so the common
+  // case is one keypress. Editable because the board is public and the
+  // name they play under isn't always the one they want on it.
+  showNameConfirm({ score, mode, name, min, max }) {
+    this.overlayEl.className = 'overlay overlay--customise';
+    this.overlayEl.innerHTML = `
+      <div class="panel initials">
+        <h2>New high score!</h2>
+        <p class="final-score">${Number(score).toLocaleString()}</p>
+        <p class="hint">${mode === 'rush' ? 'Rush' : 'Classic'} &middot; name for the leaderboard</p>
+        <form class="name-form" id="name-form">
+          <input id="lb-name" class="name-input" maxlength="${max}"
+                 autocomplete="off" spellcheck="false" value="${this.escape(name)}"
+                 aria-label="Leaderboard name">
+          <p class="name-note" id="name-note">${min} to ${max} characters</p>
+          <div class="btn-row">
+            <button type="submit" class="btn">Submit</button>
+            <button type="button" class="btn btn--ghost" data-action="name-skip">Skip</button>
+          </div>
+        </form>
+      </div>`;
+    this.overlayEl.hidden = false;
+
+    const input = this.overlayEl.querySelector('#lb-name');
+    // Sanitise as they type, matching the server's rule, so a rejected
+    // character is never a surprise after a round trip.
+    input.addEventListener('input', () => {
+      const clean = input.value.replace(/[^A-Za-z0-9 ]/g, '').slice(0, max);
+      if (clean !== input.value) input.value = clean;
+      if (this.actionHandler) this.actionHandler('name-typed');
+    });
+    this.overlayEl.querySelector('#name-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (this.actionHandler) this.actionHandler('name-submit');
+    });
+    input.focus();
+    input.select();
+  }
+
+  getLeaderboardName() {
+    return document.getElementById('lb-name')?.value ?? '';
+  }
+
+  // Shown when the typed name is too short to submit
+  setNameNote(text, isError) {
+    const el = document.getElementById('name-note');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.toggle('is-error', !!isError);
+  }
+
+  // Always-visible way out of a full-screen panel. Esc covers desktop,
+  // but a phone has no Esc key and these panels cover the whole screen,
+  // so without this there is genuinely no way back.
+  backButton() {
+    return `<button class="back-btn" data-action="menu-back">
+              <span aria-hidden="true">&#8592;</span> Menu
+            </button>`;
+  }
+
+  // Text from storage or the network is escaped before it reaches innerHTML
+  escape(s) {
+    return String(s ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
   }
 
   showPause() {
@@ -528,13 +703,14 @@ export class UI {
     this.overlayEl.hidden = false;
   }
 
-  showGameOver({ score, best, newBest }) {
+  showGameOver({ score, best, newBest, rank = null }) {
     this.overlayEl.className = 'overlay';
     this.overlayEl.innerHTML = `
       <div class="panel">
         <h2>Game Over</h2>
         <p class="final-score">${score}</p>
         ${newBest ? '<p class="new-best">New best!</p>' : `<p class="hint">Best: ${best}</p>`}
+        ${rank ? `<p class="new-best">#${rank} on the leaderboard</p>` : ''}
         <div class="btn-row">
           <button class="btn" data-action="play-again">Play Again</button>
           <button class="btn btn--ghost" data-action="goto-menu">Menu</button>

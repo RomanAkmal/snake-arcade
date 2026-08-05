@@ -6,6 +6,15 @@ import { Game, chooseAiDirection } from './game.js';
 import { Renderer, Intro, Fx, SKINS } from './render.js';
 import { AudioEngine, TRACKS } from './audio.js';
 import { UI } from './ui.js';
+import {
+  fetchTopScores,
+  submitScore,
+  makesTopTen,
+  defaultName,
+  isValidName,
+  NAME_MIN,
+  NAME_MAX,
+} from './leaderboard.js';
 import { THEMES, getTheme, applyTheme } from './themes.js';
 import {
   getBestScore,
@@ -22,7 +31,22 @@ import {
   setVolume,
   getSfxOn,
   setSfxOn,
+  getGamesCompleted,
+  incrementGamesCompleted,
+  getCreatorMomentShown,
+  setCreatorMomentShown,
 } from './storage.js';
+
+// Everywhere the game points at Roman. One place, so the About card,
+// Zig's creator moment and the footer can never drift apart.
+const LINKS = {
+  portfolio: 'https://romanakmal.dev',
+  github: 'https://github.com/RomanAkmal/snake-arcade',
+  linkedin: 'https://www.linkedin.com/in/roman-akmal-a4563320a/',
+};
+
+// Zig mentions his creator once, ever, after this many finished games.
+const CREATOR_AFTER_GAMES = 3;
 
 // Reassigned by setTheme(). Everything that draws reads it at call
 // time (or is handed the new object), so a switch applies immediately —
@@ -84,6 +108,8 @@ function setTrack(id) {
   return applied;
 }
 
+let lastVolumeBlip = 0; // throttles the drag preview blip
+
 function setMasterVolume(v) {
   const applied = audio.setVolume(v);
   setVolume(applied);
@@ -116,6 +142,7 @@ const SCREEN = {
   MENU: 'menu',
   GAME: 'game',
   GAMEOVER: 'gameover',
+  INITIALS: 'initials', // arcade name entry, only when a score makes top 10
 };
 
 const MENU_ITEMS = [
@@ -129,8 +156,25 @@ const MENU_ITEMS = [
 let screen = SCREEN.INTRO;
 let gameState = 'playing'; // GAME sub-state: 'playing' | 'paused' | 'dying'
 let menuIndex = 0;
-// Which panel is open over the menu: null | 'about' | 'customise'
+// Which panel is open over the menu: null | 'about' | 'customise' | 'leaderboard'
 let panel = null;
+
+// ---------- leaderboard ----------
+// Tab state persists for the session so flipping back to the board
+// returns you where you were. `lbRequest` is a token: switching tabs
+// twice quickly must not let a slow first response paint over the
+// second one.
+let lbPeriod = 'all';
+let lbMode = 'classic';
+let lbRequest = 0;
+
+// Identifies one run, so a leaderboard reply that arrives after the
+// player has already restarted can be discarded.
+let runToken = 0;
+
+// The run being submitted: captured at game over, because `game` is
+// replaced the moment Play Again is pressed.
+let pendingRun = null;
 
 // ---------- Customise preview ----------
 // A real Game and a real Renderer, just small: a 9×9 board makes the
@@ -271,6 +315,7 @@ let namePrefill = '';    // what the 'rename' form opens with
 let welcomeStage = null;
 let stageTimer = 0;
 let zigLanded = false; // whether Zig's head has appeared during 'enter'
+let creatorLinksShown = false; // bubble buttons appear once typing ends
 let typeChars = [];      // Array.from keeps emoji in one piece
 let typeCount = 0;
 let typeAccum = 0;
@@ -308,6 +353,7 @@ async function enterWelcome(mode) {
     // reduced motion: static Zig, content only
     ui.showZig('pop', true);
     if (mode === 'return') beginReturnLine();
+    else if (mode === 'creator') beginCreatorMessage();
     else {
       welcomeStage = 'greet';
       startTypewriter('Oh! A new challenger! 🐍');
@@ -340,6 +386,18 @@ function beginReturnLine() {
   ui.setBubbleText(line.replace(/\{name\}/g, getPlayerName()));
   ui.showBubbleNotYou(); // the name is saved per browser, not per person
   celebrate(false); // little sparkle shower
+}
+
+// Zig's one plug for his creator. Same voice as the rest of the game:
+// the welcome typewriter, the welcome slide, his own bubble.
+function beginCreatorMessage() {
+  welcomeStage = 'creator';
+  creatorLinksShown = false;
+  const name = getPlayerName() || 'Chief';
+  startTypewriter(
+    `Psst, ${name}. My creator Roman built me from scratch. Zero frameworks. ` +
+    `If you're enjoying this, star the repo or say hi!`
+  );
 }
 
 function beginHiss() {
@@ -443,6 +501,8 @@ function startGame(mode) {
   fx.clear();
   ui.hideZig();
   game = mode === 'rush' ? new Game('rush', RUSH_OPTS) : new Game('classic');
+  runToken++;    // invalidates any leaderboard check still in flight
+  pendingRun = null;
   audio.setMusicRate(1); // clear the previous run's urgency
   ui.setScore(0);
   ui.setCombo(1);
@@ -460,6 +520,20 @@ function startGame(mode) {
   screen = SCREEN.GAME;
 }
 
+// Leaving the game-over screen for the menu is the one moment the
+// creator message is allowed to appear: it never covers the score and
+// never interrupts play. Play Again bypasses this on purpose — if the
+// third game ends in a replay, the moment waits for whenever the
+// player next heads to the menu.
+function leaveGameOver() {
+  if (getGamesCompleted() >= CREATOR_AFTER_GAMES && !getCreatorMomentShown()) {
+    setCreatorMomentShown(); // latch first, so no exit path can re-fire it
+    enterWelcome('creator');
+    return;
+  }
+  enterMenu();
+}
+
 function enterGameOver(score) {
   const prevBest = getBestScore(game.mode);
   const newBest = score > prevBest;
@@ -469,6 +543,80 @@ function enterGameOver(score) {
   }
   ui.showGameOver({ score, best: Math.max(prevBest, score), newBest });
   screen = SCREEN.GAMEOVER;
+  // a "completed game" is a run that reached game over; quitting to
+  // the menu from pause doesn't count
+  incrementGamesCompleted();
+
+  // game.clock is the run's unpaused time — exactly what the server's
+  // points-per-second check needs, and it must be read now because
+  // Play Again replaces `game`.
+  pendingRun = { mode: game.mode, score, durationMs: Math.round(game.clock) };
+  maybeAskForInitials(runToken);
+}
+
+// The board is checked *after* the game-over screen is already up, so
+// a slow network never delays it. If the score qualifies we swap to the
+// initials screen; if we can't reach the board we stay quiet, since
+// there'd be nowhere to send them.
+async function maybeAskForInitials(token) {
+  const run = pendingRun;
+  if (!run || run.score <= 0) return;
+  const { ok, qualifies } = await makesTopTen(run.mode, run.score);
+  // player restarted, went to the menu, or this is a stale reply
+  if (!ok || !qualifies) return;
+  if (token !== runToken || screen !== SCREEN.GAMEOVER) return;
+  enterInitials();
+}
+
+function enterInitials() {
+  screen = SCREEN.INITIALS;
+  ui.setPauseVisible(false);
+  ui.showNameConfirm({
+    score: pendingRun.score,
+    mode: pendingRun.mode,
+    name: defaultName(getPlayerName()),
+    min: NAME_MIN,
+    max: NAME_MAX,
+  });
+  audio.readyChime();
+}
+
+function backToGameOver(rank = null) {
+  screen = SCREEN.GAMEOVER;
+  const best = getBestScore(pendingRun?.mode ?? game.mode);
+  ui.showGameOver({
+    score: pendingRun?.score ?? 0,
+    best,
+    newBest: false,
+    rank,
+  });
+}
+
+async function submitInitials() {
+  const run = pendingRun;
+  if (!run) return;
+  const name = ui.getLeaderboardName();
+  if (!isValidName(name)) {
+    ui.setNameNote(`Please use ${NAME_MIN} to ${NAME_MAX} characters`, true);
+    return; // stay on the screen rather than round-tripping a rejection
+  }
+  audio.click();
+  const res = await submitScore({ ...run, name });
+  if (screen !== SCREEN.INITIALS) return; // player bailed mid-request
+
+  if (res.ok) {
+    audio.fanfare();
+    backToGameOver(res.rank);
+    return;
+  }
+  // 4xx is the server refusing the score itself; anything else is the
+  // network, and that isn't the player's fault
+  if (res.status >= 400 && res.status < 500) {
+    ui.toast('nice try 👀');
+  } else {
+    ui.toast('Leaderboard offline, score not sent');
+  }
+  backToGameOver();
 }
 
 // ---------- menu actions ----------
@@ -492,13 +640,30 @@ function selectMenuItem(id) {
   } else if (id === 'customise') {
     panel = 'customise';
     openCustomise();
-  } else {
-    ui.toast('Coming soon ✨'); // leaderboard — Phase 6
+  } else if (id === 'leaderboard') {
+    panel = 'leaderboard';
+    openLeaderboard();
   }
 }
 
+// Paints the loading state immediately, then fills it in. Every repaint
+// re-renders the tabs, so they stay usable while a fetch is in flight.
+async function openLeaderboard() {
+  const token = ++lbRequest;
+  ui.showLeaderboard({ period: lbPeriod, mode: lbMode, state: 'loading' });
+  const { ok, scores } = await fetchTopScores(lbMode, lbPeriod);
+  // a newer tab press (or leaving the panel) wins
+  if (token !== lbRequest || panel !== 'leaderboard') return;
+  ui.showLeaderboard({
+    period: lbPeriod,
+    mode: lbMode,
+    state: ok ? 'ready' : 'offline',
+    scores,
+  });
+}
+
 function openAbout() {
-  ui.showAbout({ name: getPlayerName() || 'Chief' });
+  ui.showAbout({ name: getPlayerName() || 'Chief', links: LINKS });
 }
 
 function openCustomise() {
@@ -608,8 +773,35 @@ ui.onAction((action) => {
     const on = setSfx(action.slice(4) === 'on');
     ui.setOptionSelection('sfx', on ? 'on' : 'off');
     if (on) audio.click(); // turning them off is its own preview
+    // ----- leaderboard tabs -----
+  } else if (action.startsWith('lb-period:')) {
+    lbPeriod = action.slice(10);
+    audio.click();
+    openLeaderboard();
+  } else if (action.startsWith('lb-mode:')) {
+    lbMode = action.slice(8);
+    audio.click();
+    openLeaderboard();
+    // ----- leaderboard name entry -----
+  } else if (action === 'name-typed') {
+    audio.typeTick();
+    ui.setNameNote(`${NAME_MIN} to ${NAME_MAX} characters`, false);
+  } else if (action === 'name-submit') {
+    submitInitials();
+  } else if (action === 'name-skip') {
+    audio.click();
+    backToGameOver();
   } else if (action.startsWith('volume:')) {
-    setMasterVolume(action.slice(7)); // fires continuously while dragging
+    // fires continuously while dragging
+    setMasterVolume(action.slice(7));
+    // A blip every so often during the drag, so the new level is
+    // audible immediately even with music off. Throttled, or a drag
+    // would fire dozens of overlapping clicks.
+    const now = performance.now();
+    if (now - lastVolumeBlip > 120) {
+      lastVolumeBlip = now;
+      audio.move();
+    }
   } else if (action === 'volume-preview') {
     audio.click(); // on release: something to judge the new level by
   } else if (action === 'zig-submit') {
@@ -617,10 +809,13 @@ ui.onAction((action) => {
     submitZigName();
   } else if (action === 'zig-skip') {
     audio.click();
-    // 'just play' means "don't ask me". Editing your own name (the form
-    // came prefilled) keeps it; a first-timer or someone who just said
-    // "not you?" becomes Chief, because the stored name isn't theirs.
-    if (welcomeMode !== 'rename' || !namePrefill) setPlayerName('Chief');
+    // 'just play' means "don't ask me". Only the flows that were ASKING
+    // for a name may default it to Chief: a first-timer's greet, or a
+    // "not you?" rename (empty prefill). The creator moment reuses this
+    // same button as "keep playing" and must never touch the name.
+    if (welcomeMode === 'greet' || (welcomeMode === 'rename' && !namePrefill)) {
+      setPlayerName('Chief');
+    }
     enterMenu();
   } else if (action === 'zig-type') {
     audio.typeTick(); // soft tick per keystroke in the name input
@@ -628,9 +823,16 @@ ui.onAction((action) => {
     pokeZig();
   } else if (action === 'play-again') {
     startGame(game.mode); // restart whichever mode just ended
-  } else if (action === 'goto-menu') {
+  } else if (action === 'creator-link') {
+    // the anchor's default opens the tab; Zig's job here is done
     audio.click();
     enterMenu();
+  } else if (action === 'goto-menu') {
+    audio.click();
+    // only a game-over dismissal may trigger the creator moment; the
+    // pause screen's Exit to Menu is mid-run and must never show it
+    if (screen === SCREEN.GAMEOVER) leaveGameOver();
+    else enterMenu();
   } else if (action === 'toggle-pause' && screen === SCREEN.GAME) {
     gameState === 'playing' ? pauseGame() : resumeGame();
   }
@@ -736,6 +938,7 @@ function update(dt) {
         }
         if (stageTimer >= ENTER_TOTAL_MS) {
           if (welcomeMode === 'return') beginReturnLine();
+          else if (welcomeMode === 'creator') beginCreatorMessage();
           else beginHiss();
         }
       } else if (welcomeStage === 'hiss') {
@@ -754,6 +957,12 @@ function update(dt) {
       } else if (welcomeStage === 'return') {
         stageTimer += dt;
         if (stageTimer >= RETURN_HOLD_MS) enterMenu();
+      } else if (welcomeStage === 'creator' && !creatorLinksShown) {
+        // typing just finished (typeActive went false) — show the
+        // buttons and then hold; the player decides when this ends
+        creatorLinksShown = true;
+        ui.showCreatorLinks(LINKS);
+        audio.click();
       }
     }
   } else if (screen === SCREEN.GAME && gameState === 'playing') {
@@ -840,11 +1049,18 @@ window.addEventListener('keydown', (e) => {
   }
 
   if (screen === SCREEN.WELCOME) {
-    // returning greeting (incl. the whip beat): any key jumps to the
-    // menu. Other stages own the keyboard (the name input needs it).
-    if (welcomeMode === 'return' && welcomeStage !== 'load') {
-      e.preventDefault();
-      enterMenu();
+    if (welcomeStage !== 'load') {
+      if (welcomeMode === 'return') {
+        // returning greeting (incl. the whip beat): any key skips it
+        e.preventDefault();
+        enterMenu();
+      } else if (welcomeMode === 'creator' && key === 'escape') {
+        // creator moment: only Esc dismisses from the keyboard. Any-key
+        // would swallow Tab, and the bubble holds real links a keyboard
+        // user should be able to reach.
+        e.preventDefault();
+        enterMenu();
+      }
     }
     return;
   }
@@ -887,13 +1103,27 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
+  // The name field owns the keyboard here — it's a real text input, so
+  // only Enter and Esc are intercepted.
+  if (screen === SCREEN.INITIALS) {
+    if (key === 'enter') {
+      e.preventDefault();
+      submitInitials();
+    } else if (key === 'escape') {
+      e.preventDefault();
+      audio.click();
+      backToGameOver();
+    }
+    return;
+  }
+
   if (screen === SCREEN.GAMEOVER) {
     if (key === 'enter' || key === ' ') {
       e.preventDefault();
       startGame(game.mode); // replay the same mode
     } else if (key === 'escape') {
       e.preventDefault();
-      enterMenu();
+      leaveGameOver(); // may hand off to the creator moment
     }
   }
 });
@@ -908,12 +1138,12 @@ window.addEventListener('pointerdown', (e) => {
     skipIntro();
   } else if (
     screen === SCREEN.WELCOME &&
-    welcomeMode === 'return' &&
+    (welcomeMode === 'return' || welcomeMode === 'creator') &&
     welcomeStage !== 'load' &&
     !e.target.closest('#zig-bubble') &&
     !e.target.closest('#zig-wrap') // tapping Zig pokes him instead
   ) {
-    enterMenu(); // tap anywhere else skips the returning greeting
+    enterMenu(); // tap anywhere else dismisses the greeting/plug
   }
 });
 
@@ -934,8 +1164,12 @@ stage.addEventListener(
 stage.addEventListener(
   'touchmove',
   (e) => {
-    e.preventDefault(); // keep the page from scrolling while steering
+    // Only swallow the gesture while actually steering. This used to
+    // preventDefault every touchmove inside the stage, which also ate
+    // drags on the volume slider and scrolling of the Customise panel —
+    // both of which live in an overlay that is a child of the stage.
     if (!touchOrigin || screen !== SCREEN.GAME || gameState !== 'playing') return;
+    e.preventDefault(); // keep the page from scrolling while steering
     const dx = e.touches[0].clientX - touchOrigin.x;
     const dy = e.touches[0].clientY - touchOrigin.y;
     if (Math.max(Math.abs(dx), Math.abs(dy)) < SWIPE_PX) return;

@@ -16,15 +16,16 @@ great README — recruiters and devs will read this code.
 ## Tech rules
 
 - Vanilla JS with ES modules. NO frameworks, NO build tools, no npm
-  dependencies (exception: Supabase client via CDN for the leaderboard).
+  dependencies — none at all, including the leaderboard (see below).
 - Structure: index.html, css/style.css, js/main.js, js/game.js,
   js/render.js, js/audio.js, js/themes.js, js/ui.js, js/storage.js,
-  js/leaderboard.js
+  js/leaderboard.js, api/scores.mjs
 - All sounds synthesized with WebAudio — no audio files.
 - Mobile-first: touch/swipe must work as well as keyboard and mouse.
 - Respect prefers-reduced-motion (skip heavy animation, jump to menu).
-- Secrets (Supabase keys) go in js/config.js which is gitignored;
-  commit js/config.example.js with placeholder values instead.
+- Secrets never reach the browser: the leaderboard's KV credentials
+  live only in the serverless function. Locally they come from
+  .env.development.local (gitignored, written by `vercel env pull`).
 
 ## Features (v1 scope — do not add features beyond this list)
 
@@ -46,11 +47,14 @@ great README — recruiters and devs will read this code.
    4 snake skins — solid, gradient, neon trail, pixel blocks. All
    unlocked from the start. Live animated preview snake. Selections
    persisted in localStorage and applied in game.
-6. Leaderboard: Supabase. Top-10 only per mode. 3-letter arcade
-   initials entered on a retro screen when a score makes the cut.
-   All-time and This Week tabs. Small profanity blocklist on initials.
-   Reject impossible scores (points-per-second sanity check) with a
-   "nice try 👀" toast.
+6. Leaderboard: Vercel KV (was Supabase — changed 2026-08-05; KV needs
+   no client library, so the no-dependencies rule holds). Top-10 only
+   per mode. Players are listed by their full name, 2 to 12 characters
+   (letters, numbers and spaces), confirmed on a retro screen prefilled
+   with the name Zig asked for when a score makes the cut. All-time and
+   This Week tabs. Small profanity blocklist checked against the whole
+   lowercased name. Reject impossible scores (points-per-second sanity
+   check) with a "nice try 👀" toast.
 7. Portfolio touches: game-over share button generating a PNG score
    card (score, mode, "snake-arcade by Roman Akmal — romanakmal.dev")
    via canvas + Web Share API with clipboard fallback; "view source"
@@ -337,7 +341,152 @@ centred grid item taller than its area has its top clipped with no
 way to scroll back. Skin and Music segments wrap to two rows at
 narrow widths rather than squeezing their labels.
 
+Phase 6 done: leaderboard, on Vercel KV rather than Supabase. KV's
+REST API is plain fetch, so the project still has zero npm
+dependencies — that swap is why the tech rules above changed.
+
+api/scores.mjs is the whole backend: GET /api/scores?mode&period and
+POST. Storage is two Redis sorted sets per mode — scores:{mode}:all
+and scores:{mode}:{year}-w{week} — where the member is
+{i:initials,t:timestamp} and the score is the sort key. The timestamp
+is what keeps two identical submissions from collapsing into one
+member. After every write, ZREMRANGEBYRANK key 0 -11 trims to exactly
+the top ten (rank 0 is the LOWEST score, so this drops from the
+bottom); EXPIRE refreshes the weekly key's 60-day TTL on each write so
+a live week can't vanish. It's .mjs because without a package.json
+declaring "type": "module" that extension is what makes the Node
+runtime treat it as an ES module.
+
+TRAP: `vercel dev` does NOT load .env.development.local for a project
+like this. That filename is a convention frameworks (Next.js) read
+themselves; a static site plus one function has nothing that does, so
+the function saw no credentials at all. api/scores.mjs parses the file
+itself, but only when the platform hasn't already set the vars — the
+branch never runs on Vercel. It caches after the first attempt, so
+changing credentials means restarting `vercel dev`.
+
+Validation lives entirely on the server and never touches KV when it
+fails: 3 letters only, a small profanity blocklist, integer score, a
+minimum run length, and MAX_POINTS_PER_SEC (120) as the
+points-per-second sanity check — set generously so it rejects the
+impossible, not the merely excellent. Errors return a flat message and
+never echo the KV URL or token.
+
+Client: js/leaderboard.js. Both calls resolve rather than throw, and
+the return shape is what the UI branches on — fetchTopScores gives
+{ok, scores} so "couldn't reach the board" and "board is empty" can
+never render the same, and submitScore gives {ok, status, reason} so a
+4xx (the server calling the score impossible -> "nice try 👀") is
+distinguishable from a network failure (-> "score not sent"). Offline,
+makesTopTen returns qualifies:false: there is no point interrupting
+someone for initials with nowhere to send them.
+
+UI: a leaderboard panel with All-time/This-Week tabs over
+Classic/Rush sub-tabs, an arcade table with loading / "Be the first!"
+/ offline states and a fixed-height body so the panel doesn't jump
+between them. Initials from the network are escaped before they touch
+innerHTML. At game over the score screen paints FIRST and the top-ten
+check runs behind it, so a slow board never delays it; a runToken
+discards a reply that lands after Play Again. The run's mode, score
+and duration (game.clock, the unpaused run time the server's rate
+check needs) are captured at game over, because `game` is replaced the
+moment Play Again is pressed. Initials entry is three slots with a
+cursor: arrows cycle and move, typing a letter jumps ahead (stopping
+at the last slot rather than wrapping over what was just typed), every
+slot is also a tap target, and the field is prefilled from the saved
+player name (Roman -> ROM, short names padded with A).
+
+Launch polish pass (2026-08-05), seven items:
+
+1. Customise and Leaderboard now carry an always-visible back button
+   (sticky, top-left, 44px minimum). They are fullscreen panels and a
+   phone has no Esc key, so there was genuinely no way out of them on
+   mobile.
+
+2. The volume slider "did nothing" for two reasons, neither of them in
+   the volume code, which was correct all along. First, the stage's
+   touchmove handler called preventDefault BEFORE checking whether a
+   game was in progress, so it swallowed every drag inside any overlay
+   — the slider and the scrolling of the Customise panel alike — and
+   .overlay had to re-enable touch-action, which it inherits from
+   .stage. Second, see 3. There is now also a throttled blip while
+   dragging, so the level is audible even with music off.
+
+3. Music was mixed at peak ~0.017 after headroom: inaudible on laptop
+   speakers, which is what made the slider look broken. Track volumes
+   are up roughly 2.5x and the music bus has its own MUSIC_BALANCE
+   (1.35). The ceiling is deliberate: the loudest music voice stays
+   under the eat blip (0.25 x headroom) so music sits beneath the SFX
+   rather than competing. A check enforces that relationship, counting
+   the bass voice as well as the lead.
+
+4. The Rush countdown was showing in Classic: .hud-item sets
+   display:flex, which outranks the browser's [hidden] rule, so
+   ui.setTimerVisible(false) had no effect. Fixed with an explicit
+   #timer-box[hidden] { display: none }. The same trap already had a
+   comment on .intro-loading[hidden] — worth checking any new
+   .hud-item that needs hiding.
+
+5. Favicon: Zig's head cropped out of assets/mascot.svg (viewBox
+   '96 78 140 120') and inlined in index.html as a data URI, so it
+   costs no request and adds no file. Every '#' in the colours must be
+   percent-encoded or the data URI ends at the first one.
+
+6. No em dashes in user-facing text. Title is now
+   "Snake Arcade | Roman Akmal". Code comments still use them freely.
+
+7. Leaderboard identity is the full name, not 3-letter initials. The
+   arcade cycle screen is replaced by a confirm screen prefilled from
+   the saved player name and editable (2-12 chars, letters/numbers/
+   spaces, validated client-side before the round trip). Server
+   validates the same rule after collapsing whitespace, and the
+   profanity list is now matched as a substring of the lowercased name.
+   The KV member field changed from {i} to {n}; parseBoard still reads
+   {i} so rows written before the change don't vanish. The table's name
+   column is minmax(0, 1fr) with ellipsis, so a 12-character name
+   shrinks the gap instead of pushing the score off a 380px row.
+
+Creator pass (2026-08-05): the About cabinet card, Zig's one-time
+creator moment, and the footer star link. Every outbound URL lives in
+ONE constant, main.js LINKS (portfolio, github, linkedin), so the
+card, the bubble and the footer can't drift apart. linkedin is the
+literal placeholder LINKEDIN-URL for Roman to fill before launch; the
+GitHub link is now real (github.com/RomanAkmal/snake-arcade) and the
+old YOUR-GITHUB placeholder is gone.
+
+About is rebuilt as a cabinet card: small idling Zig, title, one-line
+story, three arcade-styled link buttons (44px targets, new tab +
+noopener), the name-change control and privacy line, and a spec plate
+("Vanilla JS · Canvas · WebAudio · Vercel serverless · Redis"). The
+mini Zig is a cloneNode of the mascot SVG with the zig-idle class —
+the bob/nod/pupil animations are pure CSS so the clone idles with no
+timers. DELIBERATE: the clone KEEPS its duplicate ids. Invalid HTML,
+but the id-based CSS (#zig-tongue hidden at rest, #zig-head nod) has
+to match both copies; stripping ids leaves the clone's tongue
+permanently out. Nothing script-side uses getElementById on those ids
+after load, so the duplication is safe.
+
+Creator moment: once ever per device (storage latch 'creatorShown'),
+after the 3rd completed game (counter 'gamesCompleted', incremented at
+enterGameOver — quits from pause don't count). It fires ONLY on a
+game-over dismissal that heads to the menu (leaveGameOver); Play Again
+bypasses it by design, so if game 3 ends in a replay the moment waits
+for the next trip to the menu — "never during play" outranks "exactly
+on the 3rd". The latch is set BEFORE showing so no exit path re-fires
+it. Presentation reuses the welcome machinery wholesale: whip + slide
+entrance, typewriter with ticks, then two link buttons + a "keep
+playing" dismiss in the bubble. Esc or tap-outside dismisses; keyboard
+dismissal is Esc-ONLY because any-key would swallow Tab and the bubble
+holds real links a keyboard user must be able to reach. TRAP fixed in
+the same pass: zig-skip used to default the name to Chief for every
+non-rename mode, which would have renamed the player when they clicked
+"keep playing" — Chief is now set only in greet or an empty-prefill
+rename.
+
+Footer: a small star icon linking the repo, muted until hover.
+
 remove \_\_snakeDebug before final deploy"
 
-Next: Phase 6 — leaderboard (Supabase). Then Phase 7 — launch:
-README, GitHub link, share card, analytics, deploy.
+Next: Phase 7 — launch: README, fill LINKEDIN-URL, share card,
+analytics (GoatCounter), deploy. Real KV credentials still need
+`vercel env pull` (.env.development.local holds placeholders).
